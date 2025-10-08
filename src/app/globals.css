@@ -1,0 +1,13 @@
+/* src/app/globals.css — Tailwind v3 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* คงธีมสว่างเสมอ */
+html { color-scheme: light; }
+body {
+  @apply bg-white text-slate-900;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ถ้ามีโค้ด prefers-color-scheme: dark อยู่ที่ไหน ลบทิ้งทั้งหมด */
