@@ -142,6 +142,24 @@ export default function FlashcardsChooser() {
     <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-semibold mb-6">Flashcards – เลือกบทและตัวเลือก</h1>
 
+        <div className="rounded-xl border bg-white p-4 mb-6">
+        <h2 className="text-lg font-medium mb-3">ฝึกเขียน</h2>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/practice/hiragana"
+            className="px-4 py-2 rounded-lg border hover:bg-slate-50 flex items-center gap-2"
+          >
+            ✍️ ฮิรางานะ (Hiragana)
+          </Link>
+
+          <Link
+            href="/practice/katakana"
+            className="px-4 py-2 rounded-lg border hover:bg-slate-50 flex items-center gap-2"
+          >
+            ✍️ คาตะคานะ (Katakana)
+          </Link>
+        </div>
+      </div>
       {/* ===== Kanji ===== */}
       <section className="border rounded-xl bg-white">
         <div className="px-4 py-3 border-b rounded-t-xl font-medium">Kanji</div>
