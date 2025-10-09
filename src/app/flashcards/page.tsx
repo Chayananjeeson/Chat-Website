@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -13,11 +13,11 @@ const KANJI_LEVELS = [
   { id: "n1", label: "Kanji – N1" },
 ];
 
-/** รายการบท Minna (เพิ่มได้ภายหลัง) */
-const MINNA_LESSONS = [
-  { id: "1", label: "Minna no Nihongo – บท 1" },
-  { id: "2", label: "Minna no Nihongo – บท 2" },
-];
+/** รายการบท Minna (1–12) */
+const MINNA_LESSONS = Array.from({ length: 12 }, (_, i) => ({
+  id: String(i + 1),
+  label: `Minna no Nihongo – บท ${i + 1}`,
+}));
 
 export default function FlashcardsChooser() {
   const router = useRouter();
@@ -30,11 +30,68 @@ export default function FlashcardsChooser() {
   const [showJapanese, setShowJapanese] = useState(true);
   const [showRomaji, setShowRomaji] = useState(false);
   const [shuffle, setShuffle] = useState(false);
-  const [hideKanaIfHasKanji, setHideKanaIfHasKanji] = useState(false); // ใหม่
+  const [hideKanaIfHasKanji, setHideKanaIfHasKanji] = useState(false);
 
-  // ========== บังคับเลือกได้ทีละ "หมวด" ==========
+  // ref + progress สำหรับสไลด์ Minna
+  const sliderRef = useRef<HTMLDivElement | null>(null);
+  const [progress, setProgress] = useState(0); // 0–100
+  const [dragging, setDragging] = useState(false);
+
+  // sync จาก scroll/resize -> แต่ "ห้าม" ขณะลาก เพื่อกันวาป
+  useEffect(() => {
+    const el = sliderRef.current;
+    if (!el) return;
+
+    const update = () => {
+      if (dragging) return; // ขณะลาก ใช้ค่าในสไลด์บาร์นำ ไม่ให้ scroll มาทับ
+      const max = el.scrollWidth - el.clientWidth;
+      const val = max <= 0 ? 0 : (el.scrollLeft / max) * 100;
+      setProgress(Math.max(0, Math.min(100, val)));
+    };
+
+    // ใช้ rAF ให้ลื่นขึ้น
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(update);
+    };
+
+    update();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", update);
+      cancelAnimationFrame(raf);
+    };
+  }, [dragging]);
+
+  const scrollBy = (dx: number) =>
+    sliderRef.current?.scrollBy({ left: dx, behavior: "smooth" });
+
+  // ตอนลากสไลด์ -> คุม scrollLeft โดยตรง และตั้ง progress ตามที่ลาก
+  const onRangeInput = (val: number) => {
+    const el = sliderRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    // ขณะลาก ใช้ behavior: "auto" ให้ตามนิ้ว/เมาส์แบบเรียลไทม์
+    el.scrollTo({ left: (val / 100) * max, behavior: "auto" });
+    setProgress(val);
+  };
+
+  const onDragStart = () => setDragging(true);
+  const onDragEnd = () => {
+    setDragging(false);
+    // ปล่อยแล้ว sync อีกทีให้ตรงเป๊ะ
+    const el = sliderRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const val = max <= 0 ? 0 : (el.scrollLeft / max) * 100;
+    setProgress(Math.max(0, Math.min(100, val)));
+  };
+
+  // ========== toggle ========== //
   const toggleKanji = (id: string) => {
-    // ถ้ามีเลือก Minna อยู่แล้ว ห้ามเลือก Kanji
     if (selectedLessons.length > 0 && !selectedKanji.includes(id)) {
       alert("คุณเลือกหมวด Minna อยู่แล้ว กรุณายกเลิก Minna ก่อน เพื่อเลือก Kanji");
       return;
@@ -45,7 +102,6 @@ export default function FlashcardsChooser() {
   };
 
   const toggleLesson = (id: string) => {
-    // ถ้ามีเลือก Kanji อยู่แล้ว ห้ามเลือก Minna
     if (selectedKanji.length > 0 && !selectedLessons.includes(id)) {
       alert("คุณเลือกหมวด Kanji อยู่แล้ว กรุณายกเลิก Kanji ก่อน เพื่อเลือก Minna");
       return;
@@ -55,24 +111,21 @@ export default function FlashcardsChooser() {
     );
   };
 
-  // ปุ่ม “เริ่มเรียน” -> ไปหน้าเล่นแฟลชการ์ด
+  // เริ่มเรียน
   const onStart = () => {
     if (selectedKanji.length === 0 && selectedLessons.length === 0) {
       alert("กรุณาเลือกอย่างน้อยหนึ่งบท/ระดับก่อน");
       return;
     }
 
-    // ถ้าเป็น Kanji
     if (selectedKanji.length > 0) {
       const p = new URLSearchParams();
-      p.set("kanji", selectedKanji.join(",")); // อนุญาตหลายระดับพร้อมกัน
+      p.set("kanji", selectedKanji.join(","));
       p.set("shuffle", shuffle ? "1" : "0");
-      // สำหรับ Kanji ไม่ใช้ตัวเลือก showJapanese/showRomaji/hideKanaIfHasKanji
       router.push(`/flashcards/play?${p.toString()}`);
       return;
     }
 
-    // มิฉะนั้นเป็น Minna
     const p = new URLSearchParams();
     p.set("lessons", selectedLessons.join(","));
     p.set("showJa", showJapanese ? "1" : "0");
@@ -82,7 +135,6 @@ export default function FlashcardsChooser() {
     router.push(`/flashcards/play?${p.toString()}`);
   };
 
-  // ลิงก์ “ดูตาราง …” (เหมือนเดิม)
   const lessonsParam = useMemo(() => selectedLessons.join(","), [selectedLessons]);
   const kanjiParam = useMemo(() => selectedKanji.join(","), [selectedKanji]);
 
@@ -127,38 +179,85 @@ export default function FlashcardsChooser() {
         </div>
       </section>
 
-      {/* ===== Minna ===== */}
+      {/* ===== Minna (สไลด์แนวนอน + range ลากได้) ===== */}
       <section className="border rounded-xl bg-white mt-6">
         <div className="px-4 py-3 border-b rounded-t-xl font-medium">
-          Minna no Nihongo (เช็คได้หลายบท)
-        </div>
-        <div className="p-4 flex flex-wrap gap-3">
-          {MINNA_LESSONS.map((ls) => (
-            <label
-              key={ls.id}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer ${
-                selectedLessons.includes(ls.id) ? "bg-blue-50 border-blue-300" : ""
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={selectedLessons.includes(ls.id)}
-                onChange={() => toggleLesson(ls.id)}
-              />
-              {ls.label}
-            </label>
-          ))}
+          Minna no Nihongo (เลือกได้หลายบท)
         </div>
 
+        <div className="relative p-4">
+          {/* ปุ่มเลื่อนซ้าย/ขวา */}
+          <button
+            type="button"
+            aria-label="scroll-left"
+            onClick={() => scrollBy(-280)}
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 w-9 h-9 shadow hover:bg-slate-50"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label="scroll-right"
+            onClick={() => scrollBy(280)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border bg-white/90 w-9 h-9 shadow hover:bg-slate-50"
+          >
+            ›
+          </button>
+
+          {/* แถบรายการบท (ปัดนิ้วได้บนมือถือ) */}
+          <div
+            ref={sliderRef}
+            className="flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory px-1 py-2"
+            style={{ scrollbarWidth: "none" } as any}
+          >
+            {MINNA_LESSONS.map((ls) => {
+              const active = selectedLessons.includes(ls.id);
+              return (
+                <label
+                  key={ls.id}
+                  className={`min-w-[240px] snap-start flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer select-none ${
+                    active ? "bg-blue-50 border-blue-300" : ""
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={() => toggleLesson(ls.id)}
+                  />
+                  {ls.label}
+                </label>
+              );
+            })}
+          </div>
+
+          {/* แถบสไลด์แบบ "ลากได้" (range) */}
+          <div className="mt-3">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={0.1}
+              value={progress}
+              onChange={(e) => onRangeInput(parseFloat(e.target.value))}
+              onMouseDown={onDragStart}
+              onMouseUp={onDragEnd}
+              onTouchStart={onDragStart}
+              onTouchEnd={onDragEnd}
+              className="w-full h-2 appearance-none bg-slate-200 rounded-full accent-slate-600"
+            />
+          </div>
+        </div>
+
+        {/* ปุ่มดูตาราง */}
         <div className="px-4 pb-4">
           <Link
             href={
-              lessonsParam
-                ? `/flashcards/table?lessons=${encodeURIComponent(lessonsParam)}`
+              selectedLessons.length
+                ? `/flashcards/table?lessons=${encodeURIComponent(selectedLessons.join(","))}`
                 : "#"
             }
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 hover:bg-slate-50 ${
-              !lessonsParam ? "pointer-events-none opacity-50" : ""
+              selectedLessons.length ? "" : "pointer-events-none opacity-50"
             }`}
           >
             ดูตารางคำศัพท์
@@ -177,7 +276,7 @@ export default function FlashcardsChooser() {
               type="checkbox"
               checked={showJapanese}
               onChange={(e) => setShowJapanese(e.target.checked)}
-              disabled={selectedKanji.length > 0 /* Kanji mode ไม่ใช้ตัวเลือกนี้ */}
+              disabled={selectedKanji.length > 0}
             />
             แสดงภาษาญี่ปุ่น (คันจิ/ฮิรางานะ)
           </label>
