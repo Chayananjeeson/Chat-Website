@@ -39,23 +39,17 @@ function normalizeLessonId(raw: string) {
   return raw.replace(/lesson/gi, "").replace(/[^\d]/g, "") || raw;
 }
 
-/** ทำให้ชื่อคอลัมน์จาก Excel กลายเป็น key มาตรฐานที่เราคาดไว้ */
 function normalizeKeys<T extends object>(row: any): T {
   const map: Record<string, string> = {
-    // common
     kanji: "Kanji",
     romaji: "Romaji",
     "hiragana/katakana": "Hiragana/Katakana",
     hiragana: "Hiragana/Katakana",
     katakana: "Hiragana/Katakana",
-
-    // meaning
     meaning: "Meaning",
     "meaning (th)": "Meaning",
     ความหมาย: "Meaning",
     "vocabulary (th)": "Vocabulary (TH)",
-
-    // kanji detail (เผื่ออนาคต)
     "onyomi (jp)": "Onyomi (JP)",
     "onyomi (romaji)": "Onyomi (Romaji)",
     "kunyomi (jp)": "Kunyomi (JP)",
@@ -87,29 +81,26 @@ function shuffleArray<T>(arr: T[]): T[] {
 export default function FlashcardsPlayPage() {
   const sp = useSearchParams();
 
-  // โหมด
-  const kanjiParam = sp.get("kanji");     // เช่น "n5" หรือ "n5,n4"
-  const lessonsParam = sp.get("lessons"); // เช่น "1,2"
+  const kanjiParam = sp.get("kanji");
+  const lessonsParam = sp.get("lessons");
   const isKanji = !!kanjiParam;
 
-  // ตัวเลือก (เฉพาะ Minna)
   const showJa = sp.get("showJa") === "1";
   const showRo = sp.get("showRo") === "1";
   const hideKanaIfHasKanji = sp.get("hideKanaIfHasKanji") === "1";
-
-  // ทั่วไป
   const wantShuffle = sp.get("shuffle") === "1";
 
-  // ข้อมูลการ์ด
   const [cards, setCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // การเล่น
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
 
-  // ป้องกันเลือกข้ามหมวด (กันเผื่อมีการแก้ URL เอง)
+  // สำหรับแอนิเมชัน
+  const [bump, setBump] = useState(false);   // ดีดขึ้นก่อนพลิก
+  const [cardKey, setCardKey] = useState(0); // trigger fade-in เมื่อเปลี่ยนการ์ด
+
   const crossCategoryError = useMemo(() => {
     if (kanjiParam && lessonsParam) {
       return "กรุณาเลือกอย่างใดอย่างหนึ่งระหว่าง Kanji หรือ Minna (ห้ามเลือกข้ามหมวด)";
@@ -138,24 +129,22 @@ export default function FlashcardsPlayPage() {
             .filter(Boolean);
 
           for (const lv of levels) {
-            let raw: KanjiRow[] = [];
-            try {
-              raw = await fetchXlsxOnce(`/kanji/jlpt_${lv}_kanji.xlsx`);
-            } catch {
-              raw = await fetchXlsxOnce(`/flashcards/jlpt_${lv}_kanji.xlsx`);
-            }
-
-            // **สำคัญ**: normalize ชื่อคอลัมน์ก่อนใช้
+            // ✅ ใช้พาธที่ถูกต้องตามที่บอก
+            const raw: KanjiRow[] = await fetchXlsxOnce(
+              `/flashcards/jlpt_${lv}_kanji.xlsx`
+            );
             const rows = raw.map((r) => normalizeKeys<KanjiRow>(r));
-
             const items = rows
-              .filter((r) => (r.Kanji || "").toString().trim() || (r.Meaning || "").toString().trim())
+              .filter(
+                (r) =>
+                  (r.Kanji || "").toString().trim() ||
+                  (r.Meaning || "").toString().trim()
+              )
               .map((r) => ({
                 type: "kanji",
                 front: (r.Kanji || "").toString(),
-                back: (r.Meaning || "").toString(), // มาจาก "Meaning (TH)" ที่ถูก normalize แล้ว
+                back: (r.Meaning || "").toString(),
               }));
-
             list.push({ title: `JLPT ${lv.toUpperCase()}`, items });
           }
         } else if (lessonsParam) {
@@ -166,7 +155,9 @@ export default function FlashcardsPlayPage() {
             .map(normalizeLessonId);
 
           for (const L of lessons) {
-            const raw: MinnaRow[] = await fetchXlsxOnce(`/flashcards/minna_lesson_${L}.xlsx`);
+            const raw: MinnaRow[] = await fetchXlsxOnce(
+              `/flashcards/minna_lesson_${L}.xlsx`
+            );
             const rows = raw.map((r) => normalizeKeys<MinnaRow>(r));
 
             const items = rows.map((r) => {
@@ -175,9 +166,9 @@ export default function FlashcardsPlayPage() {
               const romaji = (r.Romaji || "").toString();
               const meaning = (r.Meaning || "").toString();
 
-              const hasKanji = !!kanji && kanji !== "-" && /[一-龯々〆ヵヶ]/.test(kanji);
+              const hasKanji =
+                !!kanji && kanji !== "-" && /[一-龯々〆ヵヶ]/.test(kanji);
 
-              // ด้านหน้า (front)
               let frontTopSmall = "";
               let frontMainBig = "";
               let frontBottomSmall = "";
@@ -197,7 +188,7 @@ export default function FlashcardsPlayPage() {
                   if (showRo && romaji) frontBottomSmall = romaji;
                 }
               } else {
-                frontMainBig = (showRo && romaji) ? romaji : (kana || kanji || "…");
+                frontMainBig = showRo && romaji ? romaji : kana || kanji || "…";
               }
 
               return {
@@ -205,7 +196,7 @@ export default function FlashcardsPlayPage() {
                 frontTopSmall,
                 frontMainBig,
                 frontBottomSmall,
-                back: meaning, // มาจาก "ความหมาย" ที่ถูก normalize เป็น Meaning แล้ว
+                back: meaning,
               };
             });
 
@@ -215,14 +206,16 @@ export default function FlashcardsPlayPage() {
 
         const merged: any[] = [];
         list.forEach((sec) => {
-          sec.items.forEach((it: any) => merged.push({ ...it, __title: sec.title }));
+          sec.items.forEach((it: any) =>
+            merged.push({ ...it, __title: sec.title })
+          );
         });
-
         const final = wantShuffle ? shuffleArray(merged) : merged;
 
         setCards(final);
         setIndex(0);
         setFlipped(false);
+        setCardKey((k) => k + 1);
       } catch (e: any) {
         setError(e?.message || "เกิดข้อผิดพลาดในการโหลดไฟล์");
         setCards([]);
@@ -231,20 +224,26 @@ export default function FlashcardsPlayPage() {
       }
     };
     run();
-  }, [kanjiParam, lessonsParam, showJa, showRo, hideKanaIfHasKanji, wantShuffle, crossCategoryError]);
+  }, [
+    kanjiParam,
+    lessonsParam,
+    showJa,
+    showRo,
+    hideKanaIfHasKanji,
+    wantShuffle,
+    crossCategoryError,
+  ]);
 
   // คีย์ลัด
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === " ") {
         e.preventDefault();
-        setFlipped((f) => !f);
+        smoothFlip();
       } else if (e.key === "ArrowRight") {
-        setIndex((i) => Math.min(cards.length - 1, i + 1));
-        setFlipped(false);
+        goNext();
       } else if (e.key === "ArrowLeft") {
-        setIndex((i) => Math.max(0, i - 1));
-        setFlipped(false);
+        goPrev();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -252,6 +251,33 @@ export default function FlashcardsPlayPage() {
   }, [cards.length]);
 
   const curr = cards[index];
+
+  /* ---- Animation helpers ---- */
+  function smoothFlip() {
+    setBump(true);
+    setTimeout(() => setFlipped((f) => !f), 120);
+    setTimeout(() => setBump(false), 420);
+  }
+  function goNext() {
+    setIndex((i) => {
+      const nxt = Math.min(cards.length - 1, i + 1);
+      if (nxt !== i) {
+        setFlipped(false);
+        setCardKey((k) => k + 1);
+      }
+      return nxt;
+    });
+  }
+  function goPrev() {
+    setIndex((i) => {
+      const prv = Math.max(0, i - 1);
+      if (prv !== i) {
+        setFlipped(false);
+        setCardKey((k) => k + 1);
+      }
+      return prv;
+    });
+  }
 
   return (
     <main className="max-w-3xl mx-auto p-6">
@@ -274,54 +300,79 @@ export default function FlashcardsPlayPage() {
       {!!error && !loading && <div className="text-rose-600">{error}</div>}
 
       {!loading && !error && !crossCategoryError && cards.length === 0 && (
-        <div className="text-slate-500">ไม่พบการ์ดที่จะแสดง โปรดกลับไปเลือกบทก่อน</div>
+        <div className="text-slate-500">
+          ไม่พบการ์ดที่จะแสดง โปรดกลับไปเลือกบทก่อน
+        </div>
       )}
 
       {!loading && !error && !crossCategoryError && cards.length > 0 && (
         <>
-          {/* การ์ด */}
-          <div
-            className="border rounded-2xl bg-white p-8 text-center cursor-pointer select-none"
-            style={{ minHeight: 220 }}
-            onClick={() => setFlipped((f) => !f)}
-            title="คลิกเพื่อพลิกการ์ด (กด Space bar ได้)"
-          >
-            <div className="text-xs text-slate-400 mb-2">{curr.__title}</div>
+          {/* wrapper แยกชั้นเพื่อไม่ให้ชนกับ rotateY */}
+          <div className="scene mb-4">
+            <div key={cardKey} className="popWrap animate-pop-in">
+              <div
+                className={[
+                  "card3d",
+                  flipped ? "is-flipped" : "",
+                  bump ? "is-bump" : "",
+                ].join(" ")}
+                onClick={smoothFlip}
+                title="แตะ/คลิกเพื่อพลิก (กด Space bar ได้)"
+                role="button"
+                aria-label="flashcard"
+              >
+                {/* Front */}
+                <div className="face face-front border rounded-2xl bg-white p-8 text-center select-none">
+                  <div className="text-xs text-slate-400 mb-2">{curr.__title}</div>
+                  {isKanji ? (
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="text-6xl leading-none font-bold">
+                        {curr.front || "…"}
+                      </div>
+                      <div className="mt-3 text-slate-400 text-sm">
+                        แตะเพื่อดูคำแปล
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center">
+                      {curr.frontTopSmall && (
+                        <div className="text-slate-400 text-sm">
+                          {curr.frontTopSmall}
+                        </div>
+                      )}
+                      <div className="text-5xl leading-tight font-bold">
+                        {curr.frontMainBig}
+                      </div>
+                      {curr.frontBottomSmall && (
+                        <div className="text-slate-400 text-sm mt-2">
+                          {curr.frontBottomSmall}
+                        </div>
+                      )}
+                      <div className="mt-3 text-slate-400 text-sm">
+                        แตะเพื่อดูคำแปล
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-            {!flipped ? (
-              isKanji ? (
-                <div className="flex flex-col items-center justify-center">
-                  <div className="text-6xl leading-none font-bold">{curr.front || "…"}</div>
-                  <div className="mt-3 text-slate-400 text-sm">คลิกเพื่อดูคำแปล</div>
+                          {/* Back */}
+            <div className="face face-back border rounded-2xl bg-white p-8 text-center select-none">
+              <div className="text-xs text-slate-400 mb-2">{curr.__title}</div>
+              <div className="flex items-center justify-center h-[130px]">
+                <div className="text-6xl leading-none font text-slate-800">
+                  {curr.back || "—"}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center">
-                  {curr.frontTopSmall && (
-                    <div className="text-slate-400 text-sm">{curr.frontTopSmall}</div>
-                  )}
-                  <div className="text-5xl leading-tight font-bold">{curr.frontMainBig}</div>
-                  {curr.frontBottomSmall && (
-                    <div className="text-slate-400 text-sm mt-2">{curr.frontBottomSmall}</div>
-                  )}
-                  <div className="mt-3 text-slate-400 text-sm">คลิกเพื่อดูคำแปล</div>
-                </div>
-              )
-           ) : (
-  <div className="flex flex-col justify-center items-center h-[220px]">
-    <div className="text-4xl font text-slate-800">{curr.back || "—"}</div>
-  </div>
-)
-}
+              </div>
+            </div>
+              </div>
+            </div>
           </div>
 
           {/* ปุ่มควบคุม */}
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between">
             <button
               className="rounded-lg border px-3 py-2 hover:bg-slate-50 disabled:opacity-50"
-              onClick={() => {
-                setIndex((i) => Math.max(0, i - 1));
-                setFlipped(false);
-              }}
+              onClick={goPrev}
               disabled={index === 0}
             >
               ← ก่อนหน้า
@@ -329,17 +380,14 @@ export default function FlashcardsPlayPage() {
 
             <button
               className="rounded-lg border px-3 py-2 hover:bg-slate-50"
-              onClick={() => setFlipped((f) => !f)}
+              onClick={smoothFlip}
             >
               พลิกการ์ด
             </button>
 
             <button
               className="rounded-lg border px-3 py-2 hover:bg-slate-50 disabled:opacity-50"
-              onClick={() => {
-                setIndex((i) => Math.min(cards.length - 1, i + 1));
-                setFlipped(false);
-              }}
+              onClick={goNext}
               disabled={index >= cards.length - 1}
             >
               ต่อไป →
@@ -347,6 +395,48 @@ export default function FlashcardsPlayPage() {
           </div>
         </>
       )}
+
+      {/* ------- styles สำหรับ 3D + animations ------- */}
+      <style jsx>{`
+        .scene { perspective: 1000px; }
+        .popWrap { will-change: opacity, transform; }
+
+        .card3d {
+          position: relative;
+          width: 100%;
+          min-height: 260px;
+          transform-style: preserve-3d;
+          transition:
+            transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1),
+            translate 180ms ease,
+            box-shadow 180ms ease;
+          cursor: pointer;
+        }
+        .card3d.is-bump {
+          translate: 0 -6px;
+          box-shadow: 0 14px 28px rgba(0,0,0,0.08), 0 8px 12px rgba(0,0,0,0.06);
+        }
+        .card3d.is-flipped { transform: rotateY(180deg); }
+
+        .face {
+          position: absolute;
+          inset: 0;
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+        .face-back { transform: rotateY(180deg); }
+
+        @keyframes popIn {
+          from { opacity: 0; transform: translateY(8px) scale(0.98); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-pop-in { animation: popIn 240ms ease both; }
+
+        @media (prefers-reduced-motion: reduce) {
+          .card3d { transition: none; }
+          .animate-pop-in { animation: none; }
+        }
+      `}</style>
     </main>
   );
 }
