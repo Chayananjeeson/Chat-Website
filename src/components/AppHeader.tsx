@@ -49,8 +49,8 @@ export default function AppHeader() {
       className="sticky top-0 z-40 border-b border-border/60 bg-white/80 backdrop-blur"
     >
       <nav className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-4">
-        <Link href="/" className="font-semibold tracking-tight">
-          Chat
+        <Link href="chat" className="font-semibold tracking-tight">
+          Home
         </Link>
 
         {!hideRightNav && (

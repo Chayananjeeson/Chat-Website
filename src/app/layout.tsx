@@ -4,7 +4,7 @@ import AuthProvider from "@/components/AuthProvider";
 import AppHeader from "@/components/AppHeader";
 
 export const metadata: Metadata = {
-  title: "Next Realtime Chat",
+  title: "Japan Leaner Chat",
   description: "Chat app with Next.js + Firebase",
 };
 export const viewport: Viewport = { themeColor: "#ffffff" };

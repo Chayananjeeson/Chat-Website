@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import React, {
   useEffect,
   useMemo,
@@ -16,6 +15,40 @@ import { useParams, useRouter } from "next/navigation";
 type Script = "hiragana" | "katakana";
 export type Pt = { x: number; y: number; p: number };
 export type Stroke = Pt[];
+
+/* ========= Helper: เปิดแท็บใหม่ + พยายามปิดแท็บเดิม ========= */
+function openInNewTabAndClose(href: string) {
+  try {
+    window.open(href, "_blank", "noopener,noreferrer");
+    setTimeout(() => { window.close(); }, 50);
+  } catch {
+    window.location.href = href;
+  }
+}
+
+/* ========= ForceNewTab (ใช้กับลิงก์ภายในหน้านี้) ========= */
+function ForceNewTab({
+  href,
+  children,
+  className,
+  title,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => { e.preventDefault(); openInNewTabAndClose(href); }}
+      className={className}
+      title={title}
+    >
+      {children}
+    </a>
+  );
+}
 
 /* ========= Kana rows ========= */
 const H_ROWS = [
@@ -49,36 +82,16 @@ const useKanaTable = (script: Script) =>
 
 /* ========= Stroke image helpers ========= */
 const kanaToRomaji: Record<string, string> = {
-  // vowels
-  "あ":"a","い":"i","う":"u","え":"e","お":"o",
-  "ア":"a","イ":"i","ウ":"u","エ":"e","オ":"o",
-  // k
-  "か":"ka","き":"ki","く":"ku","け":"ke","こ":"ko",
-  "カ":"ka","キ":"ki","ク":"ku","ケ":"ke","コ":"ko",
-  // s
-  "さ":"sa","し":"shi","す":"su","せ":"se","そ":"so",
-  "サ":"sa","シ":"shi","ス":"su","セ":"se","ソ":"so",
-  // t
-  "た":"ta","ち":"chi","つ":"tsu","て":"te","と":"to",
-  "タ":"ta","チ":"chi","ツ":"tsu","テ":"te","ト":"to",
-  // n
-  "な":"na","に":"ni","ぬ":"nu","ね":"ne","の":"no",
-  "ナ":"na","ニ":"ni","ヌ":"nu","ネ":"ne","ノ":"no",
-  // h
-  "は":"ha","ひ":"hi","ふ":"fu","へ":"he","ほ":"ho",
-  "ハ":"ha","ヒ":"hi","フ":"fu","ヘ":"he","ホ":"ho",
-  // m
-  "ま":"ma","み":"mi","む":"mu","め":"me","も":"mo",
-  "マ":"ma","ミ":"mi","ム":"mu","メ":"me","モ":"mo",
-  // y
-  "や":"ya","ゆ":"yu","よ":"yo",
-  "ヤ":"ya","ユ":"yu","ヨ":"yo",
-  // r
-  "ら":"ra","り":"ri","る":"ru","れ":"re","ろ":"ro",
-  "ラ":"ra","リ":"ri","ル":"ru","レ":"re","ロ":"ro",
-  // w + n
-  "わ":"wa","を":"wo","ん":"n",
-  "ワ":"wa","ヲ":"wo","ン":"n",
+  "あ":"a","い":"i","う":"u","え":"e","お":"o","ア":"a","イ":"i","ウ":"u","エ":"e","オ":"o",
+  "か":"ka","き":"ki","く":"ku","け":"ke","こ":"ko","カ":"ka","キ":"ki","ク":"ku","ケ":"ke","コ":"ko",
+  "さ":"sa","し":"shi","す":"su","せ":"se","そ":"so","サ":"sa","シ":"shi","ス":"su","セ":"se","ソ":"so",
+  "た":"ta","ち":"chi","つ":"tsu","て":"te","と":"to","タ":"ta","チ":"chi","ツ":"tsu","テ":"te","ト":"to",
+  "な":"na","に":"ni","ぬ":"nu","ね":"ne","の":"no","ナ":"na","ニ":"ni","ヌ":"nu","ネ":"ne","ノ":"no",
+  "は":"ha","ひ":"hi","ふ":"fu","へ":"he","ほ":"ho","ハ":"ha","ヒ":"hi","フ":"fu","ヘ":"he","ホ":"ho",
+  "ま":"ma","み":"mi","む":"mu","め":"me","も":"mo","マ":"ma","ミ":"mi","ム":"mu","メ":"me","モ":"mo",
+  "や":"ya","ゆ":"yu","よ":"yo","ヤ":"ya","ユ":"yu","ヨ":"yo",
+  "ら":"ra","り":"ri","る":"ru","れ":"re","ろ":"ro","ラ":"ra","リ":"ri","ル":"ru","レ":"re","ロ":"ro",
+  "わ":"wa","を":"wo","ん":"n","ワ":"wa","ヲ":"wo","ン":"n",
 };
 function strokeImgURL(script: Script, ch: string): string | null {
   const slug = kanaToRomaji[ch];
@@ -135,7 +148,7 @@ export default function PracticeScriptPage() {
 
   const [pen, setPen] = useState(4);
   const [ghost, setGhost] = useState(true);
-  const [showOrder, setShowOrder] = useState(false); // (ตอนนี้ไม่ใช้ เพราะเปลี่ยนเป็นรูปทั้งหมด)
+  const [showOrder] = useState(false);
   const [rowIdx, setRowIdx] = useState(0);
 
   const storeRef = useRef<Record<string, Stroke[]>>({});
@@ -153,10 +166,46 @@ export default function PracticeScriptPage() {
     setGhost((g) => !g); setTimeout(() => setGhost((g) => !g), 0);
   };
 
+  /* ========= FIX: intercept header clicks (ไม่แก้ AppHeader) ========= */
+  useEffect(() => {
+    const header = document.getElementById("app-header");
+    if (!header) return;
+
+    const handler = (ev: Event) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const el = target.closest("a,button") as HTMLAnchorElement | HTMLButtonElement | null;
+      if (!el) return;
+
+      // A link inside header (e.g., "/" หรือ "/chat") → เปิดแท็บใหม่แล้วปิดแท็บเดิม
+      if (el instanceof HTMLAnchorElement) {
+        const href = el.getAttribute("href") || "";
+        if (href && (href === "/" || href.startsWith("/chat"))) {
+          ev.preventDefault();
+          openInNewTabAndClose(href);
+        }
+        return;
+      }
+
+      // Logout button → ปล่อยให้ signOut เดิมทำงาน และเสริมเปิด /login แท็บใหม่
+      const txt = (el.textContent || "").trim().toLowerCase();
+      if (txt.includes("logout") || txt.includes("กำลังออก")) {
+        // ไม่ preventDefault เพื่อให้ handleLogout เดิมทำงาน
+        setTimeout(() => openInNewTabAndClose("/login"), 10);
+      }
+    };
+
+    header.addEventListener("click", handler, true); // capture phase
+    return () => header.removeEventListener("click", handler, true);
+  }, []);
+
   return (
     <main className="max-w-6xl mx-auto p-6">
       <div className="mb-4 flex items-center gap-2 text-sm">
-        <Link href="/flashcards" className="text-blue-600 underline">กลับ</Link>
+        {/* ยังคงเปิดแท็บใหม่สำหรับลิงก์ในหน้านี้ */}
+        <ForceNewTab href="/flashcards">
+          <span className="text-blue-600 underline cursor-pointer">กลับ</span>
+        </ForceNewTab>
         <span className="text-slate-400">/</span>
         <span className="font-medium">
           {validScript === "hiragana" ? "ฮิรางานะ (Hiragana)" : "คาตะคานะ (Katakana)"}
@@ -203,31 +252,37 @@ export default function PracticeScriptPage() {
             <button onClick={clearAll} className="px-3 py-1.5 rounded-lg border hover:bg-slate-50 text-sm">
               Clear ทั้งตาราง
             </button>
-            <Link
-              href={`/practice/${validScript}/mobile?row=${rowIdx}`}
-              target="_blank" rel="noopener noreferrer"
-              className="ml-auto px-3 py-1.5 rounded-lg border hover:bg-slate-50 text-sm"
-            >
-              โหมดวาดในโทรศัพท์
-            </Link>
+
+            <ForceNewTab href={`/practice/${validScript}/mobile?row=${rowIdx}`}>
+              <span className="ml-auto px-3 py-1.5 rounded-lg border hover:bg-slate-50 text-sm cursor-pointer">
+                โหมดวาดจอใหญ่
+              </span>
+            </ForceNewTab>
           </div>
 
           <div className="rounded-xl border bg-white p-3">
             <div className="grid grid-cols-5 gap-3">
               {Array.from({ length: 6 }, (_, r) =>
-                colChars.map((colChar, c) => (
-                  <div key={`${validScript}-${rowIdx}-${r}-${c}`} className="relative rounded-lg border overflow-hidden bg-gray-50" style={{ aspectRatio: "1 / 1" }}>
-                    <MiniCanvas
-                      script={validScript}
-                      ghostChar={colChar}
-                      pen={pen}
-                      showGhost={ghost}
-                      showOrder={showOrder}
-                      strokes={getStrokes(r, c)}
-                      onChange={(s) => setStrokes(r, c, s)}
-                    />
-                  </div>
-                ))
+                rows[rowIdx].row.map((ch, c) => {
+                  const colChar = ch ? ch.replace(/\(|\)/g, "") : "";
+                  return (
+                    <div
+                      key={`${validScript}-${rowIdx}-${r}-${c}`}
+                      className="relative rounded-lg border overflow-hidden bg-gray-50"
+                      style={{ aspectRatio: "1 / 1" }}
+                    >
+                      <MiniCanvas
+                        script={validScript}
+                        ghostChar={colChar}
+                        pen={pen}
+                        showGhost={ghost}
+                        showOrder={false}
+                        strokes={getStrokes(r, c)}
+                        onChange={(s) => setStrokes(r, c, s)}
+                      />
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -238,24 +293,21 @@ export default function PracticeScriptPage() {
 }
 
 /* ========= MiniCanvas ========= */
-
 type MiniCanvasProps = {
   script: Script;
   ghostChar: string;
   pen: number;
   showGhost: boolean;
-  showOrder: boolean;           // (ไม่ได้ใช้แล้ว แต่เก็บไว้เผื่ออนาคต)
+  showOrder: boolean;
   strokes: Stroke[];
   onChange: (s: Stroke[]) => void;
 };
-
 export type MiniCanvasHandle = { clear: () => void };
 
 const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
   ({ script, ghostChar, pen, showGhost, strokes, onChange }, ref) => {
     const drawRef = useRef<HTMLCanvasElement | null>(null);
     const ghostRef = useRef<HTMLCanvasElement | null>(null);
-    const sizeRef = useRef<number>(0);
 
     const strokesRef = useRef<Stroke[]>([]);
     useEffect(() => { strokesRef.current = strokes ?? []; redraw(); }, [strokes]);
@@ -288,14 +340,13 @@ const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
       clear() { strokesRef.current = []; onChange([]); redraw(); },
     }));
 
-    // Ghost + Resize (วาดกริด + รูป stroke order)
+    // Ghost + Resize
     useEffect(() => {
       const c = drawRef.current!, g = ghostRef.current!, dpr = window.devicePixelRatio || 1;
 
       const resize = () => {
         const rect = c.parentElement!.getBoundingClientRect();
         const size = Math.floor(rect.width);
-        sizeRef.current = size;
 
         c.width = size * dpr; c.height = size * dpr;
         c.style.width = `${size}px`; c.style.height = `${size}px`;
@@ -306,16 +357,13 @@ const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
         const gctx = g.getContext("2d")!;
         gctx.save(); gctx.scale(dpr, dpr); gctx.clearRect(0, 0, size, size);
 
-        // grid
         gctx.strokeStyle = "#e5e7eb"; gctx.lineWidth = 1;
         const step = Math.floor(size / 6);
         for (let x = 0; x <= size; x += step) { gctx.beginPath(); gctx.moveTo(x, 0); gctx.lineTo(x, size); gctx.stroke(); }
         for (let y = 0; y <= size; y += step) { gctx.beginPath(); gctx.moveTo(0, y); gctx.lineTo(size, y); gctx.stroke(); }
 
-        // frame
         gctx.strokeStyle = "#94a3b8"; gctx.lineWidth = 2; gctx.strokeRect(6, 6, size - 12, size - 12);
 
-        // stroke-order image
         if (ghostChar && showGhost) {
           const url = strokeImgURL(script, ghostChar);
           if (url) {
@@ -340,7 +388,7 @@ const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
       return () => ro.disconnect();
     }, [script, ghostChar, showGhost, redraw]);
 
-    // Drawing layer
+    // Drawing layer (ปล่อย pointer capture + ป้องกัน gesture)
     useEffect(() => {
       const c = drawRef.current!, ctx = c.getContext("2d")!;
       let drawing = false; let current: Stroke | null = null;
@@ -353,20 +401,30 @@ const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
         const p = e.pointerType === "pen" ? (Number.isFinite(e.pressure) ? e.pressure : 0.5) : -1;
         return { x, y, p };
       };
-      const start = (e: PointerEvent) => { drawing = true; current = []; const pt = getXY(e); last = { ...pt }; target = { ...pt }; lastTs = performance.now(); current.push({ ...pt }); };
-      const move  = (e: PointerEvent) => {
+
+      const start = (e: PointerEvent) => {
+        try { if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId); } catch {}
+        drawing = true; current = [];
+        const pt = getXY(e);
+        last = { ...pt }; target = { ...pt }; lastTs = performance.now();
+        current.push({ ...pt });
+      };
+
+      const move = (e: PointerEvent) => {
         if (!drawing || !current || !last) return;
+        try { if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId); } catch {}
+        e.preventDefault();
+
         target = getXY(e); const now = performance.now(); const dt = Math.max(1, now - lastTs);
         let s = last; const D = Math.hypot(last.x - target.x, last.y - target.y);
         const step = Math.max(1, LAZY_RADIUS_PX); const steps = Math.ceil(D / step);
         for (let i = 0; i < steps; i++) {
-          s = { x: lerp(s.x, target.x, SMOOTHING), y: lerp(s.y, target.y, SMOOTHING), p: target.p >= 0 ? lerp(s.p >= 0 ? s.p : target.p, target.p, SMOOTHING) : -1 };
+          s = { x: lerp(s.x, target.x, 0.25), y: lerp(s.y, target.y, 0.25), p: target.p >= 0 ? lerp(s.p >= 0 ? s.p : target.p, target.p, 0.25) : -1 };
           current.push({ ...s });
         }
         last = s; lastTs = now;
 
-        // live
-        redraw();
+        // live draw
         ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.strokeStyle = "#111827";
         for (let i = 1; i < current.length; i++) {
           const a = current[i - 1], b = current[i];
@@ -378,21 +436,30 @@ const MiniCanvas = forwardRef<MiniCanvasHandle, MiniCanvasProps>(
         }
         ctx.restore();
       };
-      const end   = () => { if (drawing && current) { strokesRef.current = [...strokesRef.current, current]; onChange(strokesRef.current); redraw(); } drawing = false; last = target = null; current = null; };
 
-      c.addEventListener("pointerdown", start);
-      c.addEventListener("pointermove",  move);
-      c.addEventListener("pointerup",    end);
-      c.addEventListener("pointerleave", end);
-      c.addEventListener("pointercancel",end);
-      return () => {
-        c.removeEventListener("pointerdown", start);
-        c.removeEventListener("pointermove",  move);
-        c.removeEventListener("pointerup",    end);
-        c.removeEventListener("pointerleave", end);
-        c.removeEventListener("pointercancel",end);
+      const end = () => {
+        drawing = false;
+        if (current) {
+          strokesRef.current = [...strokesRef.current, current];
+          onChange(strokesRef.current);
+          current = null;
+        }
+        last = target = null;
       };
-    }, [pen, redraw, onChange]);
+
+      c.addEventListener("pointerdown", start, { passive: true });
+      c.addEventListener("pointermove",  move,  { passive: false });
+      c.addEventListener("pointerup",    end,   { passive: true });
+      c.addEventListener("pointerleave", end,   { passive: true });
+      c.addEventListener("pointercancel",end,   { passive: true });
+      return () => {
+        c.removeEventListener("pointerdown", start as any);
+        c.removeEventListener("pointermove",  move as any);
+        c.removeEventListener("pointerup",    end as any);
+        c.removeEventListener("pointerleave", end as any);
+        c.removeEventListener("pointercancel",end as any);
+      };
+    }, [pen, onChange]);
 
     return (
       <div className="absolute inset-0">

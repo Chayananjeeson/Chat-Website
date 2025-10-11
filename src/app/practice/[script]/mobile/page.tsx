@@ -6,8 +6,9 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 
 /* ========= Types ========= */
 type Script = "hiragana" | "katakana";
-type Pt = { x: number; y: number; p: number };
+type Pt = { x: number; y: number; p: number }; // p: pressure (0..1) or -1 if unused
 type Stroke = Pt[];
+type WidthMode = "fixed" | "pressure" | "velocity";
 
 /* ========= Kana rows ========= */
 const H_ROWS = [
@@ -82,14 +83,27 @@ const SPEED_MAX = 1.2;
 const SMOOTHING = 0.25;
 const LAZY_RADIUS_PX = 8;
 const TAPER_STEPS = 6;
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
+
 const widthFromPressure = (pen: number, p: number) =>
   pen * (MIN_FACTOR + (MAX_FACTOR - MIN_FACTOR) * clamp01(p));
+
 const widthFromVelocity = (pen: number, v: number) => {
   const t = clamp01((v - SPEED_MIN) / (SPEED_MAX - SPEED_MIN));
   return widthFromPressure(pen, 1 - t);
+};
+
+/* ========= NEW: width mode & pressure smoothing ========= */
+const makePressureSmoother = () => {
+  let prev = 0.5;
+  return (p: number) => {
+    prev = lerp(prev, clamp01(p), 0.2);     // EMA กันสั่น
+    const q = Math.round(prev * 20) / 20;   // quantize step 0.05
+    return clamp01(q * 0.9 + 0.05);         // bound 0.05..0.95
+  };
 };
 
 /* ========= Page ========= */
@@ -119,6 +133,7 @@ export default function PracticeMobilePage() {
 
   const currentChar = (rows[rowIdx].row[colIdx] || "").replace(/\(|\)/g, "");
   const [pen, setPen] = useState(8);
+  const [mode, setMode] = useState<WidthMode>("pressure"); // fixed | pressure | velocity
   const [ghost, setGhost] = useState(true);
 
   const storeRef = useRef<Record<string, Stroke[]>>({});
@@ -148,64 +163,123 @@ export default function PracticeMobilePage() {
   };
 
   return (
-    <main className="mx-auto max-w-[1100px] p-3 sm:p-4">
+    <main className="mx-auto max-w-[1100px] p-2 sm:p-4">
       <div className="flex items-center gap-2 text-sm mb-2">
         <Link href={`/practice/${validScript}`} className="text-blue-600 underline">กลับโหมดตาราง</Link>
         <span className="text-slate-400">/</span>
-        <span className="font-medium">โหมดวาดในโทรศัพท์</span>
+        <span className="font-medium">โหมดวาดจอใหญ่</span>
       </div>
 
-      <div className="sticky top-[52px] z-20 rounded-xl border bg-white p-3 mb-3">
-        <div className="mb-2 text-sm text-slate-600">
+      {/* TOOLBAR */}
+      <div className="sticky top-[52px] z-20 rounded-xl border bg-white p-2 sm:p-3 mb-3">
+        <div className="mb-1 sm:mb-2 text-xs sm:text-sm text-slate-600">
           แถวปัจจุบัน: <span className="font-medium">{rows[rowIdx].label}</span>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        {/* Row group selector */}
+        <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-2">
           {rows.map((r, i) => (
-            <button key={r.key} onClick={() => setRowIdx(i)}
-              className={`px-3 py-2 rounded-lg border whitespace-nowrap ${i===rowIdx ? "bg-blue-600 text-white border-blue-600" : "hover:bg-slate-50"}`}>
+            <button
+              key={r.key}
+              onClick={() => setRowIdx(i)}
+              className={`h-9 sm:h-10 px-3 rounded-lg border whitespace-nowrap ${
+                i===rowIdx ? "bg-blue-600 text-white border-blue-600" : "hover:bg-slate-50"
+              }`}
+            >
               {r.label}
             </button>
           ))}
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button onClick={() => moveCol(-1)} className="px-3 py-1.5 rounded-lg border">←</button>
+        {/* Kana buttons + arrows */}
+        <div className="mt-1 sm:mt-2 flex items-center gap-2">
+          <button onClick={() => moveCol(-1)} className="h-9 px-3 rounded-lg border">←</button>
           <div className="flex gap-2 overflow-x-auto">
             {rows[rowIdx].row.map((ch, idx) =>
               ch ? (
-                <button key={idx} onClick={() => setColIdx(idx)}
-                  className={`min-w-[52px] h-10 px-3 rounded-lg border text-lg ${idx===colIdx ? "bg-blue-600 text-white border-blue-600" : "hover:bg-slate-50"}`}>
+                <button
+                  key={idx}
+                  onClick={() => setColIdx(idx)}
+                  className={`min-w-[48px] h-9 sm:h-10 px-3 rounded-lg border text-lg ${
+                    idx===colIdx ? "bg-blue-600 text-white border-blue-600" : "hover:bg-slate-50"
+                  }`}
+                >
                   {ch}
                 </button>
               ) : null
             )}
           </div>
-          <button onClick={() => moveCol(1)} className="px-3 py-1.5 rounded-lg border">→</button>
+          <button onClick={() => moveCol(1)} className="h-9 px-3 rounded-lg border">→</button>
+        </div>
 
-          <div className="flex-1" />
-          <label className="flex items-center gap-2 text-sm">
-            <span>ปากกา</span>
-            <input type="range" min={2} max={16} value={pen} onChange={(e)=>setPen(parseInt(e.target.value,10))}/>
-            <span className="w-10 text-right">{pen}px</span>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
+        {/* Pen slider */}
+        <div className="mt-2 flex items-center gap-2 text-xs sm:text-sm">
+          <span className="hidden sm:inline">ปากกา</span>
+          <input
+            type="range"
+            min={2}
+            max={16}
+            value={pen}
+            onChange={(e)=>setPen(parseInt(e.target.value,10))}
+            className="w-[140px] sm:w-[200px]"
+          />
+          <span className="w-8 sm:w-10 text-right">{pen}px</span>
+        </div>
+
+        {/* ── Controls: Desktop = right inline / Mobile = bottom row ── */}
+
+        {/* Desktop/right */}
+        <div className="hidden sm:flex mt-2 items-center gap-3 justify-end">
+          <div className="flex items-center gap-1">
+            <span className="px-2 text-sm">เส้น:</span>
+            <button onClick={()=>setMode("fixed")} className={`px-2 py-1 rounded border ${mode==="fixed"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Fixed</button>
+            <button onClick={()=>setMode("pressure")} className={`px-2 py-1 rounded border ${mode==="pressure"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Pressure</button>
+            <button onClick={()=>setMode("velocity")} className={`px-2 py-1 rounded border ${mode==="velocity"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Velocity</button>
+          </div>
+          <label className="flex items-center gap-2">
             <input type="checkbox" checked={ghost} onChange={(e)=>setGhost(e.target.checked)} />
-            ตัวอย่าง (รูป)
+            <span>ตัวอย่าง (รูป)</span>
           </label>
-          <button onClick={undo} className="px-3 py-1.5 rounded-lg border">Undo</button>
-          <button onClick={clear} className="px-3 py-1.5 rounded-lg border">Clear</button>
-          <button onClick={downloadPNG} className="px-3 py-1.5 rounded-lg border">PNG</button>
+          <button onClick={undo} className="h-9 px-3 rounded-lg border">Undo</button>
+          <button onClick={clear} className="h-9 px-3 rounded-lg border">Clear</button>
+          <button onClick={downloadPNG} className="h-9 px-3 rounded-lg border">PNG</button>
+        </div>
+
+        {/* Mobile/bottom */}
+        <div className="sm:hidden mt-2 border-t pt-2 grid grid-cols-2 gap-2">
+          <div className="col-span-2 flex items-center justify-center gap-2">
+            <span className="px-1 text-xs">เส้น:</span>
+            <button onClick={()=>setMode("fixed")} className={`px-2 py-1 rounded border text-xs ${mode==="fixed"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Fixed</button>
+            <button onClick={()=>setMode("pressure")} className={`px-2 py-1 rounded border text-xs ${mode==="pressure"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Pressure</button>
+            <button onClick={()=>setMode("velocity")} className={`px-2 py-1 rounded border text-xs ${mode==="velocity"?"bg-slate-900 text-white":"hover:bg-slate-50"}`}>Velocity</button>
+          </div>
+          <label className="flex items-center justify-center gap-2 text-xs">
+            <input type="checkbox" checked={ghost} onChange={(e)=>setGhost(e.target.checked)} />
+            <span>ตัวอย่าง (รูป)</span>
+          </label>
+          <div className="flex items-center justify-center gap-2">
+            <button onClick={undo} className="h-9 px-3 rounded-lg border">Undo</button>
+            <button onClick={clear} className="h-9 px-3 rounded-lg border">Clear</button>
+            <button onClick={downloadPNG} className="h-9 px-3 rounded-lg border">PNG</button>
+          </div>
         </div>
       </div>
 
+      {/* BOARD */}
       <div className="rounded-xl border bg-white p-2 sm:p-3">
-        <div className="relative w-full" style={{ height: "86vh" }}>
+        <div
+          className="
+            relative w-full
+            h-[64dvh] sm:h-[72dvh] md:h-[82vh] lg:h-[86vh]
+            min-h-[320px]
+          "
+        >
           <Board
             ref={boardRef}
             script={validScript}
             char={currentChar}
             pen={pen}
+            mode={mode}
             showGhost={ghost}
             strokes={getStrokes(rowIdx, colIdx)}
             onChange={(s)=>setStrokes(rowIdx, colIdx, s)}
@@ -221,6 +295,7 @@ type BoardProps = {
   script: Script;
   char: string;
   pen: number;
+  mode: WidthMode;
   showGhost: boolean;
   strokes: Stroke[];
   onChange: (s: Stroke[]) => void;
@@ -228,12 +303,25 @@ type BoardProps = {
 type BoardHandle = { merge: () => HTMLCanvasElement };
 
 const Board = React.forwardRef<BoardHandle, BoardProps>(
-  ({ script, char, pen, showGhost, strokes, onChange }, ref) => {
+  ({ script, char, pen, mode, showGhost, strokes, onChange }, ref) => {
     const drawRef = useRef<HTMLCanvasElement | null>(null);
     const ghostRef = useRef<HTMLCanvasElement | null>(null);
 
     const strokesRef = useRef<Stroke[]>([]);
     useEffect(() => { strokesRef.current = strokes ?? []; redraw(); }, [strokes]); // sync
+
+    const pressureSmoothRef = useRef<ReturnType<typeof makePressureSmoother> | null>(null);
+    if (!pressureSmoothRef.current) pressureSmoothRef.current = makePressureSmoother();
+
+    const widthFromPair = (a: Pt, b: Pt, dt: number) => {
+      if (mode === "fixed") return Math.max(0.6, pen);
+      if (mode === "pressure" && a.p >= 0) {
+        const sm = pressureSmoothRef.current!(a.p);
+        return Math.max(0.6, widthFromPressure(pen, sm));
+      }
+      const v = dist(a, b) / Math.max(1, dt / 16);
+      return Math.max(0.6, widthFromVelocity(pen, v));
+    };
 
     const redraw = useCallback(() => {
       const c = drawRef.current!; const ctx = c.getContext("2d")!;
@@ -243,20 +331,23 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
       for (const s of strokesRef.current) {
         if (s.length<2) continue;
         const n = s.length;
-        const taper = (i:number)=>{
-          const head = Math.max(0, TAPER_STEPS - i)/TAPER_STEPS;
-          const tail = Math.max(0, TAPER_STEPS - (n-1-i))/TAPER_STEPS;
-          return 1 - Math.max(head, tail)*0.7;
-        };
         for (let i=1;i<n;i++){
           const a=s[i-1], b=s[i];
-          const v = dist(a,b)/16;
-          const base = a.p>=0 ? widthFromPressure(pen,a.p) : widthFromVelocity(pen,v);
-          ctx.lineWidth = Math.max(0.6, base * taper(i-1));
+          const base = widthFromPair(a, b, 16);
+          const head = Math.max(0, TAPER_STEPS - (i-1))/TAPER_STEPS;
+          const tail = Math.max(0, TAPER_STEPS - (n-1-i))/TAPER_STEPS;
+          const taper = 1 - Math.max(head, tail)*0.6;
+          ctx.lineWidth = base * taper;
           ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
         }
+        const end = s[n-1];
+        ctx.beginPath();
+        ctx.fillStyle = "#111827";
+        ctx.arc(end.x, end.y, Math.max(0.6, widthFromPressure(pen, 0.7)) * 0.45, 0, Math.PI*2);
+        ctx.fill();
       }
-    }, [pen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pen, mode]);
 
     React.useImperativeHandle(ref, () => ({
       merge() {
@@ -269,7 +360,7 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
       }
     }));
 
-    // ghost + resize (ใช้รูป)
+    // ghost + resize
     useEffect(()=>{
       const c=drawRef.current!, g=ghostRef.current!, dpr=window.devicePixelRatio||1;
       const resize=()=>{
@@ -304,7 +395,6 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
             const ready = getImage(url, () => resize());
             if (ready) drawImg(ready);
           } else {
-            // fallback (ถ้าไม่มีรูป)
             gctx.globalAlpha=0.18;
             gctx.font = `400 ${px}px 'JPHand',Arial,system-ui`;
             gctx.textAlign="center"; gctx.textBaseline="middle"; gctx.fillStyle="#000";
@@ -329,31 +419,66 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
         const r=c.getBoundingClientRect();
         const x=(e.clientX-r.left)*(c.width/r.width);
         const y=(e.clientY-r.top)*(c.height/r.height);
-        const p = e.pointerType==="pen" ? (Number.isFinite(e.pressure)?e.pressure:0.5) : -1;
-        return {x,y,p};
+
+        let pRaw = e.pointerType==="pen" ? (Number.isFinite(e.pressure)?e.pressure:0.5) : -1;
+        if (mode === "fixed" || mode === "velocity") pRaw = -1;
+        else if (mode === "pressure") {
+          if (pRaw >= 0) pRaw = (pressureSmoothRef.current ?? makePressureSmoother())(pRaw);
+          else pRaw = 0.5;
+        }
+        return {x,y,p:pRaw};
       };
-      const start=(e:PointerEvent)=>{ drawing=true; current=[]; const pt=getXY(e); last={...pt}; target={...pt}; lastTs=performance.now(); current.push({...pt}); };
+
+      const start=(e:PointerEvent)=>{
+        drawing=true; current=[];
+        const pt=getXY(e); last={...pt}; target={...pt}; lastTs=performance.now();
+        current.push({...pt});
+      };
+
       const move=(e:PointerEvent)=>{
         if(!drawing||!current||!last) return;
         target=getXY(e); const now=performance.now(); const dt=Math.max(1, now-lastTs);
         let s=last; const distance=Math.hypot(last.x-target.x,last.y-target.y);
         const step=Math.max(1,LAZY_RADIUS_PX); const steps=Math.ceil(distance/step);
-        for(let i=0;i<steps;i++){ s={ x: lerp(s.x,target.x,SMOOTHING), y: lerp(s.y,target.y,SMOOTHING), p: target.p>=0 ? lerp(s.p>=0 ? s.p : target.p, target.p, SMOOTHING) : -1 }; current.push({...s}); }
+
+        for(let i=0;i<steps;i++){
+          s={
+            x: lerp(s.x,target.x,SMOOTHING),
+            y: lerp(s.y,target.y,SMOOTHING),
+            p: target.p>=0 ? lerp(s.p>=0 ? s.p : target.p, target.p, SMOOTHING) : -1
+          };
+          current.push({...s});
+        }
         last=s; lastTs=now;
 
-        redraw();
         ctx.save(); ctx.lineJoin="round"; ctx.lineCap="round"; ctx.strokeStyle="#111827";
-        for(let i=1;i<current.length;i++){
+        for(let i=Math.max(1, current.length-steps); i<current.length; i++){
           const a=current[i-1], b=current[i];
-          const v=dist(a,b)/Math.max(1,dt/16);
-          const base=a.p>=0?widthFromPressure(pen,a.p):widthFromVelocity(pen,v);
-          const taper=i<TAPER_STEPS?1-((TAPER_STEPS-i)/TAPER_STEPS)*0.7:1;
-          ctx.lineWidth=Math.max(0.5, base*taper);
+          const v = dist(a,b)/Math.max(1,dt/16);
+          const base = (mode==="fixed") ? Math.max(0.5, pen) : widthFromVelocity(pen, v);
+          const vw = mode==="pressure" && a.p>=0 ? Math.max(0.5, widthFromPressure(pen, a.p)) : base;
+          const taper = i < TAPER_STEPS ? 1 - ((TAPER_STEPS - i)/TAPER_STEPS)*0.6 : 1;
+          ctx.lineWidth=Math.max(0.5, vw*taper);
           ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
         }
         ctx.restore();
       };
-      const end=()=>{ if(drawing && current){ strokesRef.current=[...strokesRef.current, current]; onChange(strokesRef.current); redraw(); } drawing=false; last=target=null; current=null; };
+
+      const end=()=>{
+        if(drawing && current){
+          strokesRef.current=[...strokesRef.current, current];
+          const endPt = current[current.length-1];
+          ctx.save();
+          ctx.fillStyle = "#111827";
+          const endR = Math.max(0.6, widthFromPressure(pen, 0.7)) * 0.45;
+          ctx.beginPath(); ctx.arc(endPt.x, endPt.y, endR, 0, Math.PI*2); ctx.fill();
+          ctx.restore();
+
+          onChange(strokesRef.current);
+          redraw();
+        }
+        drawing=false; last=target=null; current=null;
+      };
 
       c.addEventListener("pointerdown",start);
       c.addEventListener("pointermove",move);
@@ -361,7 +486,7 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
       c.addEventListener("pointerleave",end);
       c.addEventListener("pointercancel",end);
       return ()=>{ c.removeEventListener("pointerdown",start); c.removeEventListener("pointermove",move); c.removeEventListener("pointerup",end); c.removeEventListener("pointerleave",end); c.removeEventListener("pointercancel",end); };
-    }, [pen, onChange, redraw]);
+    }, [pen, mode, onChange, redraw]);
 
     return (
       <div className="absolute inset-0">

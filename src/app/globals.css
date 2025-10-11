@@ -1,1 +1,55 @@
-/* src/app/globals.css — Tailwind v3 */ @tailwind base; @tailwind components; @tailwind utilities; /* ---------- ฟอนต์ญี่ปุ่นเฉพาะช่วงอักขระ ---------- */ /* ที่อยู่ไฟล์: /public/flashcards/fonts/ttf/decol/*.ttf */ @font-face { font-family: "KaiseiDecolJP"; src: url("/flashcards/fonts/ttf/decol/KaiseiDecol-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+FF66-FF9D, U+4E00-9FFF; } @font-face { font-family: "KaiseiDecolJP"; src: url("/flashcards/fonts/ttf/decol/KaiseiDecol-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; font-display: swap; unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+FF66-FF9D, U+4E00-9FFF; } @font-face { font-family: "KaiseiDecolJP"; src: url("/flashcards/fonts/ttf/decol/KaiseiDecol-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; font-display: swap; unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+FF66-FF9D, U+4E00-9FFF; } /* ---------- ธีมสว่างตลอด ---------- */ html { color-scheme: light; } body { @apply bg-white text-slate-900; font-family: Arial, Helvetica, sans-serif, "KaiseiDecolJP"; } /* ตัวช่วย (ถ้าต้องการบังคับเฉพาะบางส่วน) */ .font-jp { font-family: "KaiseiDecolJP", Arial, Helvetica, sans-serif; } /* ---------- ฟอนต์สำหรับโหมดฝึกเขียน ---------- */ @font-face { font-family: "JPHand"; src: url("/flashcards/fonts/ttf/decol/KaiseiDecol-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; unicode-range: U+3000-303F, U+3040-309F, U+30A0-30FF, U+FF66-FF9D, U+4E00-9FFF; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- ฟอนต์ญี่ปุ่น (Hina Mincho) ---------- */
+/* โหลดจาก public/flashcards/fonts/HinaMincho-Regular.ttf */
+@font-face {
+  font-family: "HinaMinchoJP";
+  src: url("/flashcards/fonts/HinaMincho-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+
+  /* เฉพาะอักขระญี่ปุ่น (Hiragana, Katakana, Kanji, etc.) */
+  unicode-range:
+    U+3000-303F, /* Japanese punctuation */
+    U+3040-309F, /* Hiragana */
+    U+30A0-30FF, /* Katakana */
+    U+31F0-31FF, /* Katakana Phonetic Extensions */
+    U+4E00-9FFF, /* Common Kanji */
+    U+FF66-FF9D; /* Halfwidth Katakana */
+}
+
+/* ---------- ธีมสว่าง ---------- */
+html {
+  color-scheme: light;
+}
+
+/* ---------- ฟอนต์หลักของเว็บ ---------- */
+body {
+  @apply bg-white text-slate-900;
+  font-family: Arial, Helvetica, sans-serif, "HinaMinchoJP", serif;
+}
+
+/* ---------- ใช้ฟอนต์ญี่ปุ่นเฉพาะส่วน ---------- */
+.font-jp {
+  font-family: "HinaMinchoJP", Arial, Helvetica, sans-serif;
+  font-weight: 400;
+  font-style: normal;
+}
+
+/* ---------- ฟอนต์โหมดฝึกเขียน ---------- */
+@font-face {
+  font-family: "JPHand";
+  src: url("/flashcards/fonts/HinaMincho-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+3000-303F,
+    U+3040-309F,
+    U+30A0-30FF,
+    U+4E00-9FFF,
+    U+FF66-FF9D;
+}
