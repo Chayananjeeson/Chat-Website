@@ -158,6 +158,12 @@ export default function FlashcardsChooser() {
           >
             ✍️ คาตะคานะ (Katakana)
           </Link>
+        <Link
+          href="/quizzes"
+          className="ml-1 px-2 py-2 rounded-lg border bg-amber-50 hover:bg-amber-100"
+          title="ไปหน้า Quiz (สร้าง/เล่น)"
+        >🧩 Quiz 
+        </Link>
         </div>
       </div>
       {/* ===== Kanji ===== */}

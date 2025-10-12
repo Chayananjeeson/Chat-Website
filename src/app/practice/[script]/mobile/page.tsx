@@ -18,7 +18,7 @@ const H_ROWS = [
   { key: "ta", row: ["た","ち","つ","て","と"], label: "た行" },
   { key: "na", row: ["な","に","ぬ","ね","の"], label: "な行" },
   { key: "ha", row: ["は","ひ","ふ","へ","ほ"], label: "は行" },
-  { key: "ma", row: ["ま","み","む","め","も"], label: "ま行" },
+  { key: "ma", row: ["ま","み","む","เม","も"], label: "ま行" },
   { key: "ya", row: ["や", "", "ゆ", "", "よ"], label: "や行" },
   { key: "ra", row: ["ら","り","る","れ","ろ"], label: "ら行" },
   { key: "wa", row: ["わ", "", "を", "", "ん"], label: "わ行" },
@@ -135,6 +135,7 @@ export default function PracticeMobilePage() {
   const [pen, setPen] = useState(8);
   const [mode, setMode] = useState<WidthMode>("pressure"); // fixed | pressure | velocity
   const [ghost, setGhost] = useState(true);
+  const [showRomaji, setShowRomaji] = useState(true);      // <<<<<< toggle โรมันจิ
 
   const storeRef = useRef<Record<string, Stroke[]>>({});
   const keyOf = (r: number, c: number) => `${validScript}:${r}:${c}`;
@@ -226,7 +227,7 @@ export default function PracticeMobilePage() {
           <span className="w-8 sm:w-10 text-right">{pen}px</span>
         </div>
 
-        {/* ── Controls: Desktop = right inline / Mobile = bottom row ── */}
+        {/* ── Controls: Desktop/right / Mobile bottom ── */}
 
         {/* Desktop/right */}
         <div className="hidden sm:flex mt-2 items-center gap-3 justify-end">
@@ -239,6 +240,11 @@ export default function PracticeMobilePage() {
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={ghost} onChange={(e)=>setGhost(e.target.checked)} />
             <span>ตัวอย่าง (รูป)</span>
+          </label>
+          {/* <<<<< toggle โรมันจิ */}
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={showRomaji} onChange={(e)=>setShowRomaji(e.target.checked)} />
+            <span>โรมันจิ</span>
           </label>
           <button onClick={undo} className="h-9 px-3 rounded-lg border">Undo</button>
           <button onClick={clear} className="h-9 px-3 rounded-lg border">Clear</button>
@@ -257,7 +263,12 @@ export default function PracticeMobilePage() {
             <input type="checkbox" checked={ghost} onChange={(e)=>setGhost(e.target.checked)} />
             <span>ตัวอย่าง (รูป)</span>
           </label>
-          <div className="flex items-center justify-center gap-2">
+          {/* <<<<< toggle โรมันจิ (mobile) */}
+          <label className="flex items-center justify-center gap-2 text-xs">
+            <input type="checkbox" checked={showRomaji} onChange={(e)=>setShowRomaji(e.target.checked)} />
+            <span>โรมันจิ</span>
+          </label>
+          <div className="col-span-2 flex items-center justify-center gap-2">
             <button onClick={undo} className="h-9 px-3 rounded-lg border">Undo</button>
             <button onClick={clear} className="h-9 px-3 rounded-lg border">Clear</button>
             <button onClick={downloadPNG} className="h-9 px-3 rounded-lg border">PNG</button>
@@ -281,6 +292,7 @@ export default function PracticeMobilePage() {
             pen={pen}
             mode={mode}
             showGhost={ghost}
+            showRomaji={showRomaji}      // <<<<< ส่งลงบอร์ด
             strokes={getStrokes(rowIdx, colIdx)}
             onChange={(s)=>setStrokes(rowIdx, colIdx, s)}
           />
@@ -297,13 +309,14 @@ type BoardProps = {
   pen: number;
   mode: WidthMode;
   showGhost: boolean;
+  showRomaji: boolean;    // <<<<< เพิ่ม
   strokes: Stroke[];
   onChange: (s: Stroke[]) => void;
 };
 type BoardHandle = { merge: () => HTMLCanvasElement };
 
 const Board = React.forwardRef<BoardHandle, BoardProps>(
-  ({ script, char, pen, mode, showGhost, strokes, onChange }, ref) => {
+  ({ script, char, pen, mode, showGhost, showRomaji, strokes, onChange }, ref) => {
     const drawRef = useRef<HTMLCanvasElement | null>(null);
     const ghostRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -360,7 +373,7 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
       }
     }));
 
-    // ghost + resize
+    // ghost + resize (+Romaji overlay)
     useEffect(()=>{
       const c=drawRef.current!, g=ghostRef.current!, dpr=window.devicePixelRatio||1;
       const resize=()=>{
@@ -402,12 +415,30 @@ const Board = React.forwardRef<BoardHandle, BoardProps>(
           }
         }
 
+        // >>> Romaji overlay (ขวาล่าง หนา สีแดง)
+        if (showRomaji && char) {
+          const ro = kanaToRomaji[char];
+          if (ro) {
+            const pad = Math.max(10, Math.floor(size * 0.04));
+            const fontPx = Math.max(16, Math.floor(size * 0.1)); // ~10% ของด้านสั้น
+            gctx.font = `700 ${fontPx}px system-ui, -apple-system, Segoe UI, Arial, sans-serif`;
+            gctx.textAlign = "right";
+            gctx.textBaseline = "alphabetic";
+            gctx.strokeStyle = "rgba(255,255,255,0.9)"; // ขอบช่วยให้อ่านบนรูปได้
+            gctx.lineWidth = Math.max(2, Math.floor(fontPx * 0.12));
+            gctx.fillStyle = "#dc2626"; // red-600
+            const x = W - pad, y = H - pad;
+            gctx.strokeText(ro, x, y);
+            gctx.fillText(ro, x, y);
+          }
+        }
+
         gctx.restore();
         redraw();
       };
       resize(); const ro=new ResizeObserver(resize); ro.observe(c.parentElement!);
       return ()=>ro.disconnect();
-    }, [script, char, showGhost, redraw]);
+    }, [script, char, showGhost, showRomaji, redraw]);
 
     // drawing
     useEffect(()=>{
