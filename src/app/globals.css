@@ -2,11 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---------- ฟอนต์ญี่ปุ่น (Hina Mincho) ---------- */
-/* โหลดจาก public/flashcards/fonts/HinaMincho-Regular.ttf */
+/* ---------- ฟอนต์ญี่ปุ่น (CheekFont) ---------- */
+/* โหลดจาก public/flashcards/fonts/CheekFont-Regular.ttf */
 @font-face {
-  font-family: "HinaMinchoJP";
-  src: url("/flashcards/fonts/HinaMincho-Regular.ttf") format("truetype");
+  font-family: "CheekJP";
+  src: url("/flashcards/fonts/ShipporiGothicB2-Bold.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -29,12 +29,12 @@ html {
 /* ---------- ฟอนต์หลักของเว็บ ---------- */
 body {
   @apply bg-white text-slate-900;
-  font-family: Arial, Helvetica, sans-serif, "HinaMinchoJP", serif;
+  font-family: Arial, Helvetica, sans-serif, "CheekJP", serif;
 }
 
 /* ---------- ใช้ฟอนต์ญี่ปุ่นเฉพาะส่วน ---------- */
 .font-jp {
-  font-family: "HinaMinchoJP", Arial, Helvetica, sans-serif;
+  font-family: "CheekJP", Arial, Helvetica, sans-serif;
   font-weight: 400;
   font-style: normal;
 }
@@ -42,7 +42,7 @@ body {
 /* ---------- ฟอนต์โหมดฝึกเขียน ---------- */
 @font-face {
   font-family: "JPHand";
-  src: url("/flashcards/fonts/HinaMincho-Regular.ttf") format("truetype");
+  src: url("/flashcards/fonts/ShipporiGothicB2-Bold.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
