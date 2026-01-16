@@ -41,6 +41,12 @@ type Props = {
   onChangeGroupPhoto?: (file: File) => Promise<void> | void;
   onRenameGroup?: (newName: string) => Promise<void> | void;
 
+  // ✅ ให้ page.tsx ส่ง handler มาเปิด CallPanel
+  onStartCall?: () => void;
+
+  // ✅ จุดแดงแจ้งเตือนว่ามีคนอยู่ในห้องโทร (ใช้กับปุ่มโทรฝั่ง PC)
+  callBadge?: boolean;
+
   // ระยะห่างจากบน (เท่าความสูง header + padding ของ main)
   stickyTop?: number;
 };
@@ -57,12 +63,33 @@ const RoomAvatar = ({ src }: { src?: string }) => {
       </div>
     );
   }
-  return <img src={src} className="w-12 h-12 rounded-full object-cover border" alt="room" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return (
+    <img
+      src={src}
+      className="w-12 h-12 rounded-full object-cover border"
+      alt="room"
+    />
+  );
 };
 
 const SmallAvatar = ({ src, alt }: { src?: string; alt: string }) => {
-  if (!src) return <div className="w-6 h-6 rounded-full bg-slate-200 border" title={alt} />;
-  return <img src={src} className="w-6 h-6 rounded-full object-cover border" alt={alt} loading="lazy" />;
+  if (!src)
+    return (
+      <div
+        className="w-6 h-6 rounded-full bg-slate-200 border"
+        title={alt}
+      />
+    );
+  // eslint-disable-next-line @next/next/no-img-element
+  return (
+    <img
+      src={src}
+      className="w-6 h-6 rounded-full object-cover border"
+      alt={alt}
+      loading="lazy"
+    />
+  );
 };
 
 export default function ChatRightPanel({
@@ -79,17 +106,25 @@ export default function ChatRightPanel({
   onLeave,
   onChangeGroupPhoto,
   onRenameGroup,
+  onStartCall,
+  callBadge = false,
   stickyTop = 0,
 }: Props) {
   /* ---- MEDIA (3 ล่าสุด + Lightbox) ---- */
   const sortedMedia = useMemo(
-    () => [...media].sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0)),
+    () =>
+      [...media].sort(
+        (a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0)
+      ),
     [media]
   );
   const top3 = sortedMedia.slice(0, 3);
   const restCount = Math.max(0, sortedMedia.length - top3.length);
 
-  const lbItems = useMemo(() => sortedMedia.map((m) => ({ url: m.url, name: m.name })), [sortedMedia]);
+  const lbItems = useMemo(
+    () => sortedMedia.map((m) => ({ url: m.url, name: m.name })),
+    [sortedMedia]
+  );
   const [lbOpen, setLbOpen] = useState(false);
   const [lbIndex, setLbIndex] = useState(0);
   const openAt = (i: number) => {
@@ -99,22 +134,35 @@ export default function ChatRightPanel({
 
   /* ---- LINKS (แบ่งหน้า) ---- */
   const sortedLinks = useMemo(
-    () => [...links].sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0)),
+    () =>
+      [...links].sort(
+        (a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0)
+      ),
     [links]
   );
   const [linkPage, setLinkPage] = useState(0);
-  const totalLinkPages = Math.max(1, Math.ceil(sortedLinks.length / LINKS_PER_PAGE));
-  const linkSlice = sortedLinks.slice(linkPage * LINKS_PER_PAGE, linkPage * LINKS_PER_PAGE + LINKS_PER_PAGE);
+  const totalLinkPages = Math.max(
+    1,
+    Math.ceil(sortedLinks.length / LINKS_PER_PAGE)
+  );
+  const linkSlice = sortedLinks.slice(
+    linkPage * LINKS_PER_PAGE,
+    linkPage * LINKS_PER_PAGE + LINKS_PER_PAGE
+  );
 
   /* ---- สมาชิก (แบ่งหน้า 3 รายการ + เพิ่มสมาชิก) ---- */
   const members = useMemo(() => [...participants], [participants]);
   const [memberPage, setMemberPage] = useState(0);
-  const totalMemberPages = Math.max(1, Math.ceil(members.length / MEMBERS_PER_PAGE));
+  const totalMemberPages = Math.max(
+    1,
+    Math.ceil(members.length / MEMBERS_PER_PAGE)
+  );
   const pageStart = memberPage * MEMBERS_PER_PAGE;
   const pageSlice = members.slice(pageStart, pageStart + MEMBERS_PER_PAGE);
 
   React.useEffect(() => {
-    if (memberPage > totalMemberPages - 1) setMemberPage(Math.max(0, totalMemberPages - 1));
+    if (memberPage > totalMemberPages - 1)
+      setMemberPage(Math.max(0, totalMemberPages - 1));
   }, [members.length]); // eslint-disable-line
 
   const handleLeaveClick = async () => {
@@ -148,7 +196,10 @@ export default function ChatRightPanel({
   const cancelEdit = () => setEditing(false);
   const saveEdit = async () => {
     const name = pendingName.trim();
-    if (!name || name === groupName) { setEditing(false); return; }
+    if (!name || name === groupName) {
+      setEditing(false);
+      return;
+    }
     await onRenameGroup?.(name);
     setEditing(false);
   };
@@ -156,12 +207,17 @@ export default function ChatRightPanel({
   /* ---- เพิ่มสมาชิก (+) ---- */
   const [showAdd, setShowAdd] = useState(false);
   const [kw, setKw] = useState("");
-  const [results, setResults] = useState<Array<{ uid: string; name: string; photoURL?: string }>>([]);
+  const [results, setResults] = useState<
+    Array<{ uid: string; name: string; photoURL?: string }>
+  >([]);
   const [addingUid, setAddingUid] = useState<string | null>(null);
 
   const doSearch = async () => {
     const q = kw.trim().replace(/^@/, "");
-    if (!q) { setResults([]); return; }
+    if (!q) {
+      setResults([]);
+      return;
+    }
 
     const out: Array<{ uid: string; name: string; photoURL?: string }> = [];
     const seen = new Set<string>();
@@ -172,7 +228,11 @@ export default function ChatRightPanel({
       if (seen.has(d.id)) return;
       seen.add(d.id);
       const u = d.data() as any;
-      out.push({ uid: d.id, name: u.displayName || u.username || u.email || d.id, photoURL: u.photoURL });
+      out.push({
+        uid: d.id,
+        name: u.displayName || u.username || u.email || d.id,
+        photoURL: u.photoURL,
+      });
     });
 
     if (out.length === 0 && q.includes("@")) {
@@ -182,7 +242,11 @@ export default function ChatRightPanel({
         if (seen.has(d.id)) return;
         seen.add(d.id);
         const u = d.data() as any;
-        out.push({ uid: d.id, name: u.displayName || u.username || u.email || d.id, photoURL: u.photoURL });
+        out.push({
+          uid: d.id,
+          name: u.displayName || u.username || u.email || d.id,
+          photoURL: u.photoURL,
+        });
       });
     }
 
@@ -190,11 +254,17 @@ export default function ChatRightPanel({
       const d = await getDoc(doc(db, "users", q));
       if (d.exists() && !seen.has(d.id)) {
         const u = d.data() as any;
-        out.push({ uid: d.id, name: u.displayName || u.username || u.email || d.id, photoURL: u.photoURL });
+        out.push({
+          uid: d.id,
+          name: u.displayName || u.username || u.email || d.id,
+          photoURL: u.photoURL,
+        });
       }
     }
 
-    const filtered = out.filter((r) => r.uid !== meUid && !participants.includes(r.uid));
+    const filtered = out.filter(
+      (r) => r.uid !== meUid && !participants.includes(r.uid)
+    );
     setResults(filtered);
   };
 
@@ -210,7 +280,10 @@ export default function ChatRightPanel({
 
   /* --------- DM counterpart (ชื่อ/รูปอีกฝั่ง) --------- */
   const otherUid = useMemo(
-    () => (!isGroup ? (participants.find((u) => u && u !== meUid) ?? participants[0] ?? null) : null),
+    () =>
+      !isGroup
+        ? participants.find((u) => u && u !== meUid) ?? participants[0] ?? null
+        : null,
     [isGroup, participants, meUid]
   );
   const other = otherUid ? usersMap[otherUid] : undefined;
@@ -218,9 +291,11 @@ export default function ChatRightPanel({
     (!isGroup && (other?.displayName || other?.username || other?.email)) || "แชท";
   const dmPhoto = !isGroup ? other?.photoURL : undefined;
 
+  // ✅ แสดงปุ่มโทรเฉพาะ DM + มี handler
+  const showCallButton = !isGroup && !!onStartCall;
+
   return (
-    // กว้างคงที่คอลัมน์ขวา และ sticky ตาม header จริง
-    <aside className="hidden lg:block lg:w-[360px] lg:flex-shrink-0">
+    <div className="w-full">
       <div
         className="border rounded-lg p-4 bg-white sticky overflow-y-auto"
         style={{ top: stickyTop, maxHeight: `calc(100vh - ${stickyTop}px)` }}
@@ -247,7 +322,9 @@ export default function ChatRightPanel({
               <div className="min-w-0">
                 {!editing ? (
                   <div className="flex items-center gap-2">
-                    <div className="font-semibold truncate">{groupName || "กลุ่มแชท"}</div>
+                    <div className="font-semibold truncate">
+                      {groupName || "กลุ่มแชท"}
+                    </div>
                     {canEditGroup && (
                       <button
                         type="button"
@@ -256,7 +333,7 @@ export default function ChatRightPanel({
                         className="p-1 rounded hover:bg-slate-100 text-slate-600"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/>
+                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
                         </svg>
                       </button>
                     )}
@@ -270,8 +347,20 @@ export default function ChatRightPanel({
                       placeholder="ชื่อกลุ่ม"
                       autoFocus
                     />
-                    <button onClick={saveEdit} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" title="บันทึก">✔</button>
-                    <button onClick={cancelEdit} className="px-2 py-1 text-xs rounded bg-slate-200 hover:bg-slate-300" title="ยกเลิก">✖</button>
+                    <button
+                      onClick={saveEdit}
+                      className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                      title="บันทึก"
+                    >
+                      ✔
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="px-2 py-1 text-xs rounded bg-slate-200 hover:bg-slate-300"
+                      title="ยกเลิก"
+                    >
+                      ✖
+                    </button>
                   </div>
                 )}
                 <div className="text-xs text-slate-500">กลุ่ม</div>
@@ -282,6 +371,7 @@ export default function ChatRightPanel({
             <>
               <div className="shrink-0">
                 {dmPhoto ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={dmPhoto}
                     className="w-12 h-12 rounded-full object-cover border"
@@ -296,14 +386,39 @@ export default function ChatRightPanel({
                   </div>
                 )}
               </div>
+
               <div className="min-w-0">
                 <div className="font-semibold truncate">{dmName}</div>
                 <div className="text-xs text-slate-500">ส่วนตัว</div>
               </div>
+
+              {/* ✅ ปุ่มโทรฝั่งขวาสุด (PC) */}
+              {showCallButton && (
+                <div className="ml-auto flex items-center">
+                  <button
+                    type="button"
+                    onClick={onStartCall}
+                    className="hidden lg:flex w-9 h-9 items-center justify-center rounded-full border hover:bg-slate-50 relative"
+                    title="โทร"
+                  >
+                    📞
+                    {callBadge ? (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-600 border border-white" />
+                    ) : null}
+                  </button>
+                </div>
+              )}
             </>
           )}
+
           {/* hidden file input */}
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onFileChange}
+          />
         </div>
 
         {/* สมาชิกในกลุ่ม (เฉพาะกลุ่ม) */}
@@ -314,14 +429,38 @@ export default function ChatRightPanel({
               <div className="flex items-center gap-2 text-xs">
                 {members.length > MEMBERS_PER_PAGE && (
                   <>
-                    <button onClick={() => setMemberPage((p) => Math.max(0, p - 1))} className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40" disabled={memberPage === 0} title="ใหม่กว่า">◀</button>
-                    <span className="text-slate-500">หน้า {memberPage + 1}/{totalMemberPages}</span>
-                    <button onClick={() => setMemberPage((p) => Math.min(totalMemberPages - 1, p + 1))} className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40" disabled={memberPage >= totalMemberPages - 1} title="เก่ากว่า">▶</button>
+                    <button
+                      onClick={() => setMemberPage((p) => Math.max(0, p - 1))}
+                      className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40"
+                      disabled={memberPage === 0}
+                      title="ใหม่กว่า"
+                    >
+                      ◀
+                    </button>
+                    <span className="text-slate-500">
+                      หน้า {memberPage + 1}/{totalMemberPages}
+                    </span>
+                    <button
+                      onClick={() => setMemberPage((p) =>
+                        Math.min(totalMemberPages - 1, p + 1)
+                      )}
+                      className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40"
+                      disabled={memberPage >= totalMemberPages - 1}
+                      title="เก่ากว่า"
+                    >
+                      ▶
+                    </button>
                   </>
                 )}
 
                 {canEditGroup && (
-                  <button onClick={() => setShowAdd((s) => !s)} className="ml-1 w-7 h-7 rounded-full border flex items-center justify-center hover:bg-slate-50" title="เพิ่มสมาชิก (+)">+</button>
+                  <button
+                    onClick={() => setShowAdd((s) => !s)}
+                    className="ml-1 w-7 h-7 rounded-full border flex items-center justify-center hover:bg-slate-50"
+                    title="เพิ่มสมาชิก (+)"
+                  >
+                    +
+                  </button>
                 )}
               </div>
             </div>
@@ -351,7 +490,13 @@ export default function ChatRightPanel({
                     placeholder="@username / email / uid"
                     className="flex-1 border rounded px-2 py-1 text-sm"
                   />
-                  <button onClick={doSearch} className="px-2 py-1 rounded border text-sm hover:bg-slate-50" title="ค้นหา">ค้นหา</button>
+                  <button
+                    onClick={doSearch}
+                    className="px-2 py-1 rounded border text-sm hover:bg-slate-50"
+                    title="ค้นหา"
+                  >
+                    ค้นหา
+                  </button>
                 </div>
 
                 {results.length === 0 ? (
@@ -362,9 +507,15 @@ export default function ChatRightPanel({
                       <li key={r.uid} className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <SmallAvatar src={r.photoURL} alt={r.name} />
-                          <span className="text-sm truncate" title={r.name}>{r.name}</span>
+                          <span className="text-sm truncate" title={r.name}>
+                            {r.name}
+                          </span>
                         </div>
-                        <button onClick={() => addMember(r.uid)} disabled={addingUid === r.uid} className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
+                        <button
+                          onClick={() => addMember(r.uid)}
+                          disabled={addingUid === r.uid}
+                          className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
                           {addingUid === r.uid ? "กำลังเพิ่ม…" : "เพิ่ม"}
                         </button>
                       </li>
@@ -373,7 +524,12 @@ export default function ChatRightPanel({
                 )}
 
                 <div className="mt-2 text-right">
-                  <button onClick={() => setShowAdd(false)} className="text-xs text-slate-500 hover:underline">ปิด</button>
+                  <button
+                    onClick={() => setShowAdd(false)}
+                    className="text-xs text-slate-500 hover:underline"
+                  >
+                    ปิด
+                  </button>
                 </div>
               </div>
             )}
@@ -395,7 +551,13 @@ export default function ChatRightPanel({
                   onClick={() => openAt(i)}
                   title={m.name || "รูปภาพ"}
                 >
-                  <img src={m.url} alt={m.name || "media"} className="w-full h-24 object-cover group-hover:opacity-90 transition" loading="lazy" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={m.url}
+                    alt={m.name || "media"}
+                    className="w-full h-24 object-cover group-hover:opacity-90 transition"
+                    loading="lazy"
+                  />
                   {i === 2 && restCount > 0 && (
                     <div className="absolute inset-0 bg-black/50 text-white flex items-center justify-center text-lg font-semibold">
                       +{restCount}
@@ -413,9 +575,27 @@ export default function ChatRightPanel({
             <h3 className="text-sm font-semibold">ลิงก์</h3>
             {sortedLinks.length > LINKS_PER_PAGE && (
               <div className="flex items-center gap-2 text-xs">
-                <button onClick={() => setLinkPage((p) => Math.max(0, p - 1))} className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40" disabled={linkPage === 0} title="ใหม่กว่า">◀</button>
-                <span className="text-slate-500">หน้า {linkPage + 1}/{totalLinkPages}</span>
-                <button onClick={() => setLinkPage((p) => Math.min(totalLinkPages - 1, p + 1))} className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40" disabled={linkPage >= totalLinkPages - 1} title="เก่ากว่า">▶</button>
+                <button
+                  onClick={() => setLinkPage((p) => Math.max(0, p - 1))}
+                  className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40"
+                  disabled={linkPage === 0}
+                  title="ใหม่กว่า"
+                >
+                  ◀
+                </button>
+                <span className="text-slate-500">
+                  หน้า {linkPage + 1}/{totalLinkPages}
+                </span>
+                <button
+                  onClick={() => setLinkPage((p) =>
+                    Math.min(totalLinkPages - 1, p + 1)
+                  )}
+                  className="px-2 py-1 rounded border hover:bg-slate-50 disabled:opacity-40"
+                  disabled={linkPage >= totalLinkPages - 1}
+                  title="เก่ากว่า"
+                >
+                  ▶
+                </button>
               </div>
             )}
           </div>
@@ -426,7 +606,13 @@ export default function ChatRightPanel({
             <ul className="space-y-1">
               {linkSlice.map((l, i) => (
                 <li key={`${l.url}-${i}`} className="text-xs truncate">
-                  <a href={l.url} className="text-blue-600 hover:underline" target="_blank" rel="noreferrer" title={l.url}>
+                  <a
+                    href={l.url}
+                    className="text-blue-600 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                    title={l.url}
+                  >
                     {l.text || l.url}
                   </a>
                 </li>
@@ -437,14 +623,23 @@ export default function ChatRightPanel({
 
         {/* ออกจากกลุ่ม */}
         {isGroup && (
-          <button onClick={handleLeaveClick} className="w-full mt-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 py-2 text-sm">
+          <button
+            onClick={handleLeaveClick}
+            className="w-full mt-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 py-2 text-sm"
+          >
             ออกจากกลุ่ม
           </button>
         )}
       </div>
 
       {/* Lightbox ทั้งหมด */}
-      <Lightbox open={lbOpen} items={lbItems} index={lbIndex} onClose={() => setLbOpen(false)} onIndexChange={setLbIndex} />
-    </aside>
+      <Lightbox
+        open={lbOpen}
+        items={lbItems}
+        index={lbIndex}
+        onClose={() => setLbOpen(false)}
+        onIndexChange={setLbIndex}
+      />
+    </div>
   );
 }

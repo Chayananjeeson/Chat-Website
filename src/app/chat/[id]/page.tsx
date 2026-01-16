@@ -1,3 +1,4 @@
+// src/app/chat/[id]/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,8 +13,6 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
   orderBy,
   query,
@@ -29,6 +28,10 @@ import { fmtDate, fmtTime, getOtherUid, compressImage } from "@/lib/chat-utils";
 import ImageGridBubble, { ImageItem } from "@/components/ImageGridBubble";
 import Lightbox from "@/components/Lightbox";
 import ChatRightPanel, { UsersMap } from "@/components/ChatRightPanel";
+
+// ✅ CALL
+import CallPanel from "@/components/CallPanel";
+import { ensureCallRoom, isMemberActive } from "@/lib/call-room";
 
 import data from "@emoji-mart/data";
 const EmojiPicker: any = dynamic(() => import("@emoji-mart/react"), { ssr: false });
@@ -65,9 +68,7 @@ type GroupMeta = {
 const renderWithLinks = (text: string): React.ReactNode => {
   if (!text) return null;
 
-  // ใช้ rx แบ่ง "ลิงก์" ออกจากข้อความอื่น
   const splitRx = /(https?:\/\/[^\s)]+|www\.[^\s)]+)/gi;
-  // ใช้ตัวนี้สำหรับตรวจว่าเป็นลิงก์ทั้งชิ้น (เลี่ยงปัญหา lastIndex ของ /g)
   const isLinkRx = /^(https?:\/\/[^\s)]+|www\.[^\s)]+)$/i;
 
   const parts = text.split(splitRx);
@@ -126,6 +127,18 @@ export default function ChatPage() {
   const [viewerItems, setViewerItems] = useState<{ url: string; name?: string }[]>([]);
   const [viewerIndex, setViewerIndex] = useState(0);
 
+  // MOBILE: เปิด/ปิดแถบ info ด้านขวา (full-screen drawer)
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
+
+  // ✅ CALL UI
+  const [callOpen, setCallOpen] = useState(false);
+  const [callBadge, setCallBadge] = useState(false);
+
+  // ✅ handler ให้ RightPanel เรียก (PC)
+  const handleStartCall = () => {
+    setCallOpen(true);
+  };
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -134,7 +147,7 @@ export default function ChatPage() {
   const userUnsubsRef = useRef<Map<string, () => void>>(new Map());
   const readsUnsubRef = useRef<null | (() => void)>(null);
 
-  /* ====== จัดตำแหน่ง/ขนาด Panel ซ้าย/ขวา ====== */
+  /* ====== จัดตำแหน่ง/ขนาด Panel ซ้าย/ขวา (DESKTOP) ====== */
   const mainRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [stickyTop, setStickyTop] = useState(24);
@@ -143,7 +156,7 @@ export default function ChatPage() {
   const PANEL_RIGHT_W = 360;
   const PANEL_LEFT_W = 280;
   const PANEL_GAP = 24;
-  const PANEL_Y_OFFSET = 24; // ปรับตรงนี้ได้ – ให้ระดับบนเท่ากับกล่องแชท
+  const PANEL_Y_OFFSET = 24;
 
   // คำนวณระยะจากบน (ให้ panel ติดใต้ header)
   useEffect(() => {
@@ -153,7 +166,6 @@ export default function ChatPage() {
       const padTop = mainRef.current
         ? parseInt(getComputedStyle(mainRef.current).paddingTop || "0", 10)
         : 0;
-      // ขยับลงอีกนิดด้วย PANEL_Y_OFFSET
       setStickyTop(headerH + padTop + PANEL_Y_OFFSET);
     };
     calcTop();
@@ -168,12 +180,10 @@ export default function ChatPage() {
       if (!el) return;
       const rect = el.getBoundingClientRect();
 
-      // Right panel
       const maxLeft = window.innerWidth - PANEL_RIGHT_W - PANEL_GAP;
       const leftR = Math.min(rect.right + PANEL_GAP, maxLeft);
       setPanelRightLeft(leftR);
 
-      // Left panel
       const minLeft = PANEL_GAP;
       const leftL = Math.max(minLeft, rect.left - PANEL_GAP - PANEL_LEFT_W);
       setPanelLeftLeft(leftL);
@@ -302,11 +312,14 @@ export default function ChatPage() {
   };
   useEffect(() => {
     markMyRead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
+
   useEffect(() => {
     const onFocus = () => markMyRead();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cid, myUid]);
 
   /* ===== preview helpers ===== */
@@ -334,6 +347,7 @@ export default function ChatPage() {
       return [];
     });
   };
+
   useEffect(() => {
     const el = dropRef.current;
     if (!el) return;
@@ -352,6 +366,7 @@ export default function ChatPage() {
       el.removeEventListener("drop", onDrop);
     };
   }, []);
+
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -459,8 +474,7 @@ export default function ChatPage() {
   };
 
   /* ---------- Helpers ---------- */
-  const getSenderUid = (gr: Group): string =>
-    gr.kind === "text" ? (gr.msg as any).uid : (gr.items[0] as any).uid;
+  const getSenderUid = (gr: Group): string => (gr.kind === "text" ? (gr.msg as any).uid : (gr.items[0] as any).uid);
   const getCreatedAt = (gr: Group): any => (gr.kind === "text" ? (gr.msg as any).createdAt : (gr.lastAt as any));
 
   /* ===== group message bubbles ===== */
@@ -494,7 +508,6 @@ export default function ChatPage() {
   const groupTimes = groups.map((g) => {
     const ct = getCreatedAt(g);
     return ct?.toMillis ? ct.toMillis() : 0;
-    // eslint-disable-next-line
   });
 
   // index ล่าสุดที่แต่ละคนอ่านถึง (GROUP)
@@ -513,6 +526,7 @@ export default function ChatPage() {
       map[uid] = idx;
     });
     return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readsMap, isGroup, groupTimes.join(",")]);
 
   /* ===== จัดการกลุ่ม ===== */
@@ -554,13 +568,16 @@ export default function ChatPage() {
     messages.forEach((m: any) => {
       if (m.type !== "text" || !m.text) return;
       const found = m.text.match(rx);
-      if (found) found.forEach((u: string) => items.push({ url: u.startsWith("http") ? u : `https://${u}`, at: m.createdAt, text: m.text }));
+      if (found)
+        found.forEach((u: string) =>
+          items.push({ url: u.startsWith("http") ? u : `https://${u}`, at: m.createdAt, text: m.text })
+        );
     });
     return items;
   }, [messages]);
 
   /* =========================================================================================
-     LEFT PANEL (โปรไฟล์เรา + รายชื่อเพื่อน + กลุ่ม) + UNREAD BADGE (แก้บั๊ก 18 ไม่หาย)
+     LEFT PANEL (เดิม) — แสดงเฉพาะ lg ขึ้นไป (มือถือไม่ต้องมี)
      ========================================================================================= */
 
   const [meUidState, setMeUidState] = useState<string | null>(myUid);
@@ -571,7 +588,6 @@ export default function ChatPage() {
   const [groupsList, setGroupsList] = useState<GroupMeta[]>([]);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({}); // cid -> count
 
-  // auth + โหลด me + subscribe friends & groups
   useEffect(() => {
     const off = onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -582,7 +598,6 @@ export default function ChatPage() {
       const meSnap = await getDoc(doc(db, "users", u.uid));
       if (meSnap.exists()) setMeDoc({ uid: u.uid, ...(meSnap.data() as any) });
 
-      // friendships ของเรา
       const qf = query(collection(db, "friendships"), where("participants", "array-contains", u.uid));
       const unsubF = onSnapshot(qf, (snap) => {
         const otherUids: string[] = [];
@@ -594,7 +609,6 @@ export default function ChatPage() {
         setFriends(otherUids);
       });
 
-      // groups ที่เราเป็นสมาชิก
       const qg = query(
         collection(db, "conversations"),
         where("type", "==", "group"),
@@ -613,7 +627,6 @@ export default function ChatPage() {
     return () => off();
   }, [router]);
 
-  // โหลดโปรไฟล์ user ของ friends
   useEffect(() => {
     if (!meUidState) return;
     if (friends.length === 0) {
@@ -637,7 +650,6 @@ export default function ChatPage() {
     return () => unsubs.forEach((fn) => fn());
   }, [friends.join(","), meUidState]);
 
-  // ===== helper: subscribe unread ของห้องหนึ่ง (เวอร์ชันแก้บั๊ก) =====
   const watchUnreadForConv = (convId: string) => {
     if (!meUidState) return () => {};
     let lastReadAt: any = null;
@@ -659,13 +671,10 @@ export default function ChatPage() {
       recalc();
     });
 
-    const offMsg = onSnapshot(
-      query(collection(db, "conversations", convId, "messages"), orderBy("createdAt", "asc")),
-      (snap) => {
-        msgs = snap.docs.map((d) => d.data());
-        recalc();
-      }
-    );
+    const offMsg = onSnapshot(query(collection(db, "conversations", convId, "messages"), orderBy("createdAt", "asc")), (snap) => {
+      msgs = snap.docs.map((d) => d.data());
+      recalc();
+    });
 
     return () => {
       offRead();
@@ -673,24 +682,20 @@ export default function ChatPage() {
     };
   };
 
-  // subscribe unread ทั้ง DM และ Group
   useEffect(() => {
     if (!meUidState) return;
     const cleaners: (() => void)[] = [];
 
-    // DM
     friends.forEach((otherUid) => {
       const theCid = [meUidState, otherUid].sort().join("_");
       cleaners.push(watchUnreadForConv(theCid));
     });
 
-    // Groups
     groupsList.forEach((g) => cleaners.push(watchUnreadForConv(g.id)));
 
     return () => cleaners.forEach((fn) => fn());
   }, [meUidState, friends.join(","), groupsList.map((g) => g.id).join(",")]);
 
-  // เคลียร์ badge ของห้องที่กำลังเปิดแบบทันทีเมื่อเข้าห้อง
   useEffect(() => {
     if (!cid || !meUidState) return;
     setUnreadMap((prev) => ({ ...prev, [cid]: 0 }));
@@ -698,15 +703,121 @@ export default function ChatPage() {
 
   const convIdWith = (otherUid: string) => [meUidState!, otherUid].sort().join("_");
 
-  /* ========================================================================================= */
+  /* =========================================================================================
+     MOBILE HEADER
+     ========================================================================================= */
+  const otherUid = useMemo(() => {
+    if (!myUid || isGroup) return null;
+    return getOtherUid(cid, myUid) || null;
+  }, [cid, myUid, isGroup]);
+
+  const mobileHeader = useMemo(() => {
+    if (isGroup) {
+      const name = conv?.name || "(ไม่มีชื่อกลุ่ม)";
+      const photoURL = conv?.photoURL || null;
+      return { title: name, subtitle: "กลุ่ม", photoURL };
+    }
+    if (otherUid) {
+      const who = usersMap[otherUid] || {};
+      const title = who.displayName || (who.username ? `@${who.username}` : "") || who.email || "ผู้ใช้";
+      const subtitle = who.username ? `@${who.username}` : who.email || "";
+      const photoURL = who.photoURL || null;
+      return { title, subtitle, photoURL };
+    }
+    return { title: "แชท", subtitle: "", photoURL: null };
+  }, [isGroup, conv?.name, conv?.photoURL, otherUid, usersMap]);
+
+  // ✅ CALL badge: อีกฝ่ายอยู่ในห้อง แต่เราไม่อยู่
+  useEffect(() => {
+    if (!cid || !myUid || !otherUid) {
+      setCallBadge(false);
+      return;
+    }
+
+    let off: (() => void) | null = null;
+
+    (async () => {
+      const ref = await ensureCallRoom(cid);
+      off = onSnapshot(ref, (snap) => {
+        if (!snap.exists()) return setCallBadge(false);
+        const d = snap.data() as any;
+        const members = d.members || {};
+        const otherActive = isMemberActive(members[otherUid]);
+        const myActive2 = isMemberActive(members[myUid]);
+        setCallBadge(!!otherActive && !myActive2);
+      });
+    })();
+
+    return () => {
+      if (off) off();
+    };
+  }, [cid, myUid, otherUid]);
 
   /* ===== render ===== */
   return (
     <main ref={mainRef} className="p-6">
-      {/* container กลาง = กว้างเท่ากับ header */}
+      {/* container กลาง */}
       <div ref={containerRef} className="mx-auto w-full max-w-4xl px-4">
-        {/* กล่องแชทกว้างเต็ม container */}
         <div className="min-w-0 w-full">
+          {/* ===== MOBILE TOP BAR ===== */}
+          <div className="lg:hidden sticky top-0 z-20 bg-white border rounded-lg mb-3">
+            <div className="flex items-center gap-3 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => router.push("/chat")}
+                className="shrink-0 w-9 h-9 rounded-full border bg-white hover:bg-slate-50 flex items-center justify-center"
+                title="กลับ"
+              >
+                ←
+              </button>
+
+              <div className="flex items-center gap-2 min-w-0">
+                {mobileHeader.photoURL ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={mobileHeader.photoURL} alt="" className="w-9 h-9 rounded-full object-cover border" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-white">
+                    {(mobileHeader.title?.[0] || "👤").toString().toUpperCase()}
+                  </div>
+                )}
+
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{mobileHeader.title}</div>
+                  {mobileHeader.subtitle ? (
+                    <div className="text-xs text-slate-500 truncate">{mobileHeader.subtitle}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* ✅ ปุ่มโทร (มือถือ) */}
+              {!isGroup && otherUid ? (
+                <button
+                  type="button"
+                  onClick={() => setCallOpen(true)}
+                  className="ml-auto shrink-0 w-10 h-9 rounded-lg border bg-white hover:bg-slate-50 flex items-center justify-center relative"
+                  title="โทร"
+                >
+                  📞
+                  {callBadge ? (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-600 border border-white" />
+                  ) : null}
+                </button>
+              ) : (
+                <div className="ml-auto" />
+              )}
+
+              <button
+                type="button"
+                onClick={() => setMobileInfoOpen(true)}
+                className="shrink-0 w-10 h-9 rounded-lg border bg-white hover:bg-slate-50 flex items-center justify-center"
+                title="ข้อมูล"
+              >
+                ≡
+              </button>
+            </div>
+          </div>
+
+          {/* กล่องแชท */}
           <div className="border rounded-lg h-[65vh] overflow-y-auto p-4 bg-white" ref={dropRef}>
             {(() => {
               let lastDate = "";
@@ -750,23 +861,28 @@ export default function ChatPage() {
                     )}
 
                     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
-                      {!mine && (isStack ? (
-                        <div className="w-7 mr-2" />
-                      ) : (
-                        <img
-                          src={who.photoURL || undefined}
-                          className="w-7 h-7 rounded-full object-cover border mr-2 self-start"
-                          alt=""
-                        />
-                      ))}
+                      {!mine &&
+                        (isStack ? (
+                          <div className="w-7 mr-2" />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={who.photoURL || undefined}
+                            className="w-7 h-7 rounded-full object-cover border mr-2 self-start"
+                            alt=""
+                          />
+                        ))}
 
                       <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[80%]`}>
                         {!mine && !isStack && <p className="text-xs text-slate-500 mb-1">{nameFrom}</p>}
 
                         {g.kind === "text" ? (
-                          <div className={`${mine ? "bg-blue-500 text-white" : "bg-slate-200 text-slate-900"} px-3 py-2 rounded-2xl`}>
-                            {/* ทำลิงก์ให้กดได้ */}
-                            <div className="whitespace-pre-wrap break-words">
+                          <div
+                            className={`${
+                              mine ? "bg-blue-500 text-white" : "bg-slate-200 text-slate-900"
+                            } px-3 py-2 rounded-2xl`}
+                          >
+                            <div className="whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
                               {renderWithLinks((g as any).msg.text)}
                             </div>
                           </div>
@@ -774,7 +890,9 @@ export default function ChatPage() {
                           <div>
                             <ImageGridBubble
                               mine={mine}
-                              items={(g as any).items.map((it: any) => ({ id: it.id, url: it.imageURL, name: it.imageName } as ImageItem))}
+                              items={(g as any).items.map(
+                                (it: any) => ({ id: it.id, url: it.imageURL, name: it.imageName } as ImageItem)
+                              )}
                               onOpenAt={(start) => {
                                 setViewerItems((g as any).items.map((it: any) => ({ url: it.imageURL, name: it.imageName })));
                                 setViewerIndex(start);
@@ -795,6 +913,7 @@ export default function ChatPage() {
                                 {readers.map((uid) => {
                                   const u = usersMap[uid] || {};
                                   return (
+                                    // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                       key={uid}
                                       src={u.photoURL || undefined}
@@ -829,6 +948,7 @@ export default function ChatPage() {
               <div className="grid grid-cols-3 gap-2">
                 {pendingImages.map((p) => (
                   <div key={p.id} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.previewURL} className="w-full h-28 object-cover rounded-lg border bg-white" alt="" />
                     <button
                       type="button"
@@ -845,7 +965,7 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* แถวอินพุต */}
+          {/* แถวอินพุต (IG-like) */}
           <div className="relative flex mt-4 items-end gap-2">
             <input
               id="image-input"
@@ -859,19 +979,29 @@ export default function ChatPage() {
                 e.currentTarget.value = "";
               }}
             />
-            <label htmlFor="image-input" className="border rounded-lg px-3 py-2 bg-white hover:bg-slate-50 cursor-pointer" title="เลือกรูป">
-              📷
-            </label>
 
+            {/* emoji ซ้ายสุด */}
+            <button
+              type="button"
+              onClick={() => setShowPicker((s) => !s)}
+              className="shrink-0 w-10 h-10 rounded-xl border bg-white hover:bg-slate-50 flex items-center justify-center"
+              disabled={uploading}
+              title="อีโมจิ"
+            >
+              😊
+            </button>
+
+            {/* กล่องข้อความ */}
             <textarea
               ref={inputRef}
-              className="flex-1 border px-3 py-2 rounded-lg outline-none resize-none max-h-40"
+              className="flex-1 border px-3 py-2 rounded-xl outline-none resize-none leading-5 max-h-32"
               rows={1}
               value={text}
-              placeholder="พิมพ์ข้อความ…"
+              placeholder="Message..."
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                const isComposing = (e.nativeEvent as any).isComposing || (e.nativeEvent as KeyboardEvent).keyCode === 229;
+                const isComposing =
+                  (e.nativeEvent as any).isComposing || (e.nativeEvent as KeyboardEvent).keyCode === 229;
                 if (e.key === "Enter" && !e.shiftKey && !isComposing) {
                   e.preventDefault();
                   if (text.trim() || pendingImages.length) sendAll();
@@ -880,30 +1010,31 @@ export default function ChatPage() {
               disabled={uploading}
             />
 
-            <button
-              type="button"
-              onClick={() => setShowPicker((s) => !s)}
-              className="border rounded-lg px-3 py-2 bg-white hover:bg-slate-50"
-              disabled={uploading}
-              title="อีโมจิ"
+            {/* กล้องขวาสุด */}
+            <label
+              htmlFor="image-input"
+              className="shrink-0 w-10 h-10 rounded-xl border bg-white hover:bg-slate-50 flex items-center justify-center cursor-pointer"
+              title="ส่งรูป"
             >
-              😊
-            </button>
+              📷
+            </label>
 
-            <button
-              onClick={sendAll}
-              disabled={uploading || (!text.trim() && pendingImages.length === 0)}
-              className={`px-4 py-2 rounded-lg text-white ${
-                text.trim() || pendingImages.length ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-300 cursor-not-allowed"
-              }`}
-            >
-              ส่ง
-            </button>
+            {/* ปุ่มส่ง: โชว์เฉพาะตอนมีข้อความ/รูป */}
+            {(text.trim() || pendingImages.length > 0) && (
+              <button
+                onClick={sendAll}
+                disabled={uploading}
+                className="shrink-0 w-10 h-10 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center"
+                title="ส่ง"
+              >
+                ➤
+              </button>
+            )}
 
             {uploading && <div className="absolute -top-6 left-0 text-xs text-slate-500">กำลังส่ง… {progress}%</div>}
 
             {showPicker && (
-              <div ref={pickerRef} className="absolute bottom-14 right-0 z-50 shadow-lg bg-white rounded-xl">
+              <div ref={pickerRef} className="absolute bottom-14 left-0 z-50 shadow-lg bg-white rounded-xl">
                 <EmojiPicker
                   data={data}
                   locale="th"
@@ -923,7 +1054,7 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* ===== Overlay: ChatRightPanel ทางขวา นอก container ===== */}
+      {/* ===== DESKTOP: Right Panel ===== */}
       {panelRightLeft !== null && (
         <div
           className="hidden lg:block"
@@ -951,12 +1082,15 @@ export default function ChatPage() {
             onLeave={handleLeave}
             onChangeGroupPhoto={handleChangeGroupPhoto}
             onRenameGroup={handleRenameGroup}
-            stickyTop={0} // ภายใน panel ไม่ต้อง sticky ซ้ำ เพราะ wrapper fixed แล้ว
+            stickyTop={0}
+            // ✅ เพิ่ม 2 ตัวนี้
+            onStartCall={!isGroup && otherUid ? handleStartCall : undefined}
+            callBadge={callBadge}
           />
         </div>
       )}
 
-      {/* ===== Overlay: Left panel (โปรไฟล์เรา + รายชื่อเพื่อน + กลุ่ม) ===== */}
+      {/* ===== DESKTOP: Left panel (เดิม) ===== */}
       {panelLeftLeft !== null && (
         <aside
           className="hidden lg:block"
@@ -970,13 +1104,23 @@ export default function ChatPage() {
             zIndex: 20,
           }}
         >
+          {/* ... (ส่วน Left panel ของมึงเหมือนเดิมทั้งหมด) ... */}
+          {/* (กูไม่แตะ Left panel เลย เพื่อไม่ให้ฟีเจอร์เพื่อน/กลุ่มพัง) */}
+
           {/* Profile card */}
           <div className="border rounded-xl p-3 bg-white mb-4">
             <div className="flex items-center gap-3">
               {meDoc?.photoURL ? (
-                <img src={meDoc.photoURL} alt={meDoc.displayName || meDoc.username || meDoc.email || "me"} className="w-12 h-12 rounded-full object-cover border" />
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={meDoc.photoURL}
+                  alt={meDoc.displayName || meDoc.username || meDoc.email || "me"}
+                  className="w-12 h-12 rounded-full object-cover border"
+                />
               ) : (
-                <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-white">🙂</div>
+                <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-white">
+                  🙂
+                </div>
               )}
               <div className="min-w-0">
                 <div className="font-medium truncate">{meDoc?.displayName || "(ไม่มีชื่อที่แสดง)"}</div>
@@ -1007,11 +1151,9 @@ export default function ChatPage() {
                 const unread = unreadMap[theCid] || 0;
                 return (
                   <li key={u.uid}>
-                    <Link
-                      href={`/chat/${theCid}`}
-                      className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50"
-                    >
+                    <Link href={`/chat/${theCid}`} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50">
                       {u.photoURL ? (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img src={u.photoURL} className="w-8 h-8 rounded-full object-cover border" alt="" />
                       ) : (
                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-white">
@@ -1051,11 +1193,9 @@ export default function ChatPage() {
                 const unread = unreadMap[g.id] || 0;
                 return (
                   <li key={g.id}>
-                    <Link
-                      href={`/chat/${g.id}`}
-                      className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50"
-                    >
+                    <Link href={`/chat/${g.id}`} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50">
                       {g.photoURL ? (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img src={g.photoURL} className="w-8 h-8 rounded-full object-cover border" alt="" />
                       ) : (
                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-white">
@@ -1081,8 +1221,68 @@ export default function ChatPage() {
         </aside>
       )}
 
+      {/* ===== MOBILE: Right Panel Drawer ===== */}
+      {mobileInfoOpen && (
+        <div className="lg:hidden fixed inset-0 z-[60]">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileInfoOpen(false)} />
+          <div className="absolute inset-x-0 top-0 bottom-0 bg-white flex flex-col">
+            <div className="h-14 border-b flex items-center px-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileInfoOpen(false)}
+                className="w-10 h-9 rounded-lg border bg-white hover:bg-slate-50 flex items-center justify-center"
+                title="ย้อนกลับ"
+              >
+                ←
+              </button>
+              <div className="font-medium truncate">ข้อมูลแชท</div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <ChatRightPanel
+                cid={cid}
+                isGroup={!!isGroup}
+                meUid={myUid}
+                participants={participants}
+                usersMap={usersMap}
+                groupName={conv?.name}
+                groupPhoto={conv?.photoURL}
+                canEditGroup={isGroup && !!(myUid && participants.includes(myUid))}
+                media={media}
+                links={links}
+                onLeave={handleLeave}
+                onChangeGroupPhoto={handleChangeGroupPhoto}
+                onRenameGroup={handleRenameGroup}
+                stickyTop={0}
+                // ✅ ใส่เหมือนกัน เผื่ออนาคตอยากกดโทรจาก drawer ได้
+                onStartCall={!isGroup && otherUid ? handleStartCall : undefined}
+                callBadge={callBadge}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ CALL PANEL (เฉพาะ DM) */}
+      {!isGroup && otherUid && (
+        <CallPanel
+          open={callOpen}
+          onClose={() => setCallOpen(false)}
+          cid={cid}
+          meUid={myUid}
+          otherUid={otherUid}
+          usersMap={usersMap}
+        />
+      )}
+
       {/* Lightbox ของรูปในแชท */}
-      <Lightbox open={viewerOpen} items={viewerItems} index={viewerIndex} onClose={() => setViewerOpen(false)} onIndexChange={setViewerIndex} />
+      <Lightbox
+        open={viewerOpen}
+        items={viewerItems}
+        index={viewerIndex}
+        onClose={() => setViewerOpen(false)}
+        onIndexChange={setViewerIndex}
+      />
     </main>
   );
 }
