@@ -10,19 +10,20 @@ type MinnaRow = {
   Kanji?: string;
   "Hiragana/Katakana"?: string;
   Romaji?: string;
+  Group?: string; // เพิ่ม Group
   Meaning?: string; // TH
 };
 
 type KanjiRow = {
   Kanji?: string;
-  MeaningTH?: string;          // ความหมายคันจิ
+  MeaningTH?: string;
   OnyomiJP?: string;
   OnyomiRomaji?: string;
   KunyomiJP?: string;
   KunyomiRomaji?: string;
   VocabJP?: string;
   VocabRomaji?: string;
-  VocabTH?: string;            // ความหมาย vocab
+  VocabTH?: string;
 };
 
 type Section =
@@ -51,6 +52,7 @@ function normalizeMinnaRow(r: any): MinnaRow {
     else if (key.includes("hiragana") || key.includes("katakana"))
       out["Hiragana/Katakana"] = String(v || "");
     else if (key.includes("romaji")) out.Romaji = String(v || "");
+    else if (key === "group" || key === "กลุ่ม") out.Group = String(v || ""); // เพิ่มการอ่านค่า Group
     else if (key.includes("meaning") || key.includes("ความหมาย"))
       out.Meaning = String(v || "");
   });
@@ -83,7 +85,6 @@ function normalizeKanjiRow(r: any): KanjiRow {
 export default function FlashcardTablePage() {
   const sp = useSearchParams();
 
-  // จากหน้าเลือกบท: lessons="1,2" | kanji="n5" (หรือหลายระดับ "n5,n4")
   const lessonsParam = (sp.get("lessons") || "").trim();
   const kanjiParam = (sp.get("kanji") || "").trim();
 
@@ -102,39 +103,18 @@ export default function FlashcardTablePage() {
         const built: Section[] = [];
 
         if (isKanjiMode) {
-          const levels = kanjiParam
-            .split(",")
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean);
-
+          const levels = kanjiParam.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
           for (const lv of levels) {
-            const file = `/flashcards/jlpt_${lv}_kanji.xlsx`; // public/flashcards/jlpt_n5_kanji.xlsx
-            const raw = await fetchXlsxOnce(file);
+            const raw = await fetchXlsxOnce(`/flashcards/jlpt_${lv}_kanji.xlsx`);
             const rows = raw.map(normalizeKanjiRow);
-            built.push({
-              kind: "kanji",
-              id: `kanji-${lv}`,
-              title: `JLPT ${lv.toUpperCase()}`,
-              rows,
-            });
+            built.push({ kind: "kanji", id: `kanji-${lv}`, title: `JLPT ${lv.toUpperCase()}`, rows });
           }
         } else {
-          const lessons = lessonsParam
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map(normalizeLessonId);
-
+          const lessons = lessonsParam.split(",").map((s) => s.trim()).filter(Boolean).map(normalizeLessonId);
           for (const L of lessons) {
-            const file = `/flashcards/minna_lesson_${L}.xlsx`;
-            const raw = await fetchXlsxOnce(file);
+            const raw = await fetchXlsxOnce(`/flashcards/minna_lesson_${L}.xlsx`);
             const rows = raw.map(normalizeMinnaRow);
-            built.push({
-              kind: "minna",
-              id: `minna-${L}`,
-              title: `Minna no Nihongo – บท ${L}`,
-              rows,
-            });
+            built.push({ kind: "minna", id: `minna-${L}`, title: `Minna no Nihongo – บท ${L}`, rows });
           }
         }
 
@@ -142,24 +122,12 @@ export default function FlashcardTablePage() {
         setCurrent(0);
       } catch (e: any) {
         setError(e?.message || "เกิดข้อผิดพลาดในการโหลดไฟล์");
-        setSections([]);
-        setCurrent(0);
       } finally {
         setLoading(false);
       }
     };
     run();
   }, [isKanjiMode, lessonsParam, kanjiParam]);
-
-  const badge = isKanjiMode ? (
-    <span className="inline-block text-[10px] font-semibold tracking-wide px-2 py-1 rounded-full bg-rose-100 text-rose-700">
-      KANJI
-    </span>
-  ) : (
-    <span className="inline-block text-[10px] font-semibold tracking-wide px-2 py-1 rounded-full bg-sky-100 text-sky-700">
-      MINNA
-    </span>
-  );
 
   const onPrev = () => setCurrent((i) => Math.max(0, i - 1));
   const onNext = () => setCurrent((i) => Math.min(sections.length - 1, i + 1));
@@ -175,133 +143,101 @@ export default function FlashcardTablePage() {
       </div>
 
       <h1 className="text-2xl font-semibold mb-2 flex items-center gap-2">
-        {badge}
+        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isKanjiMode ? "bg-rose-100 text-rose-700" : "bg-sky-100 text-sky-700"}`}>
+          {isKanjiMode ? "KANJI" : "MINNA"}
+        </span>
         ตารางคำศัพท์ / คันจิ
       </h1>
-      <p className="text-sm text-slate-500 mb-4">
-        จะแสดงเฉพาะรายการที่คุณเลือกไว้จากหน้าก่อนหน้า คุณสามารถสลับระหว่างรายการที่เลือกด้วยแท็บหรือปุ่มลูกศร
-      </p>
-
-      {loading && <div className="text-slate-500">กำลังโหลด…</div>}
-      {!!error && <div className="text-rose-600">{error}</div>}
 
       {!loading && !error && sections.length > 0 && (
         <>
-          {/* Nav bar: tabs + arrows */}
           <div className="mb-3 flex items-center gap-2">
             <div className="flex overflow-x-auto gap-2 pr-2">
               {sections.map((s, idx) => (
                 <button
                   key={s.id}
                   onClick={() => setCurrent(idx)}
-                  className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${
-                    idx === current ? "bg-slate-900 text-white border-slate-900" : "hover:bg-slate-50"
-                  }`}
-                  title={s.title}
+                  className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${idx === current ? "bg-slate-900 text-white" : "hover:bg-slate-50"}`}
                 >
                   {s.title}
                 </button>
               ))}
             </div>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={onPrev}
-                disabled={current <= 0}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${
-                  current <= 0 ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"
-                }`}
-                title="ก่อนหน้า"
-              >
-                ← ก่อนหน้า
-              </button>
-              <div className="text-xs text-slate-500">{current + 1} / {sections.length}</div>
-              <button
-                onClick={onNext}
-                disabled={current >= sections.length - 1}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${
-                  current >= sections.length - 1 ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"
-                }`}
-                title="ถัดไป"
-              >
-                ถัดไป →
-              </button>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <button onClick={onPrev} disabled={current <= 0} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-30">←</button>
+              <span className="text-xs">{current + 1} / {sections.length}</span>
+              <button onClick={onNext} disabled={current >= sections.length - 1} className="rounded-lg border px-3 py-1.5 text-sm disabled:opacity-30">→</button>
             </div>
           </div>
 
-          {/* Current section title bar */}
-          <div className="px-3 py-2 mb-2 border rounded-lg bg-white flex items-center gap-2">
-            {badge}
-            <div className="font-medium">{cur?.title}</div>
-          </div>
-
-          {/* Render table by section type */}
           {cur?.kind === "minna" && (
-            <section className="overflow-x-auto border rounded-xl bg-white">
+            <div className="overflow-x-auto border rounded-xl bg-white shadow-sm">
               <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-slate-700">
+                <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="px-3 py-2 text-left">Kanji</th>
-                    <th className="px-3 py-2 text-left">Hiragana/Katakana</th>
-                    <th className="px-3 py-2 text-left">Romaji</th>
-                    <th className="px-3 py-2 text-left w-[260px]">ความหมาย</th>
+                    <th className="px-4 py-3 text-left font-semibold">Kanji</th>
+                    <th className="px-4 py-3 text-left font-semibold">Hiragana/Katakana</th>
+                    <th className="px-4 py-3 text-left font-semibold">Romaji</th>
+                    <th className="px-4 py-3 text-center font-semibold">Group</th>
+                    <th className="px-4 py-3 text-left font-semibold w-[300px]">ความหมาย</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y">
                   {cur.rows.map((r, i) => (
-                    <tr key={i} className="border-t">
-                      <td className="px-3 py-2">{r.Kanji}</td>
-                      <td className="px-3 py-2">{r["Hiragana/Katakana"]}</td>
-                      <td className="px-3 py-2">{r.Romaji}</td>
-                      <td className="px-3 py-2">{r.Meaning}</td>
+                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-slate-900">{r.Kanji}</td>
+                      <td className="px-4 py-3 text-slate-600">{r["Hiragana/Katakana"]}</td>
+                      <td className="px-4 py-3 text-slate-500 italic">{r.Romaji}</td>
+                      <td className="px-4 py-3 text-center">
+                        {r.Group && (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">
+                            {r.Group}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{r.Meaning}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </section>
+            </div>
           )}
 
           {cur?.kind === "kanji" && (
-            <section className="overflow-x-auto border rounded-xl bg-white">
+            <div className="overflow-x-auto border rounded-xl bg-white shadow-sm">
               <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-slate-700">
+                <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="px-3 py-2 text-left w-[120px]">Kanji</th>
-                    <th className="px-3 py-2 text-left w-[220px]">ความหมายคันจิ (TH)</th>
-                    <th className="px-3 py-2 text-left">Onyomi (JP / Romaji)</th>
-                    <th className="px-3 py-2 text-left">Kunyomi (JP / Romaji)</th>
-                    <th className="px-3 py-2 text-left">Vocabulary (JP / Romaji)</th>
-                    <th className="px-3 py-2 text-left w-[220px]">ความหมาย Vocab (TH)</th>
+                    <th className="px-4 py-3 text-left">Kanji</th>
+                    <th className="px-4 py-3 text-left">ความหมาย (TH)</th>
+                    <th className="px-4 py-3 text-left">Onyomi / Kunyomi</th>
+                    <th className="px-4 py-3 text-left">Vocabulary (JP / TH)</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y">
                   {(cur.rows as KanjiRow[]).map((r, i) => (
-                    <tr key={i} className="border-t">
-                      <td className="px-3 py-3 align-top">
-                        <div className="text-3xl leading-none">{r.Kanji || "-"}</div>
+                    <tr key={i} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-4 align-top text-3xl">{r.Kanji}</td>
+                      <td className="px-4 py-4 align-top">{r.MeaningTH}</td>
+                      <td className="px-4 py-4 align-top text-xs space-y-1">
+                        <div><span className="text-rose-500 font-bold">On:</span> {r.OnyomiJP} ({r.OnyomiRomaji})</div>
+                        <div><span className="text-sky-500 font-bold">Kun:</span> {r.KunyomiJP} ({r.KunyomiRomaji})</div>
                       </td>
-                      <td className="px-3 py-3 align-top whitespace-pre-wrap">{r.MeaningTH || ""}</td>
-                      <td className="px-3 py-3 align-top whitespace-pre-wrap">
-                        {r.OnyomiJP || ""}{r.OnyomiJP && r.OnyomiRomaji ? " / " : ""}{r.OnyomiRomaji || ""}
+                      <td className="px-4 py-4 align-top text-xs">
+                        <div className="font-bold text-slate-800">{r.VocabJP} ({r.VocabRomaji})</div>
+                        <div className="text-slate-500">{r.VocabTH}</div>
                       </td>
-                      <td className="px-3 py-3 align-top whitespace-pre-wrap">
-                        {r.KunyomiJP || ""}{r.KunyomiJP && r.KunyomiRomaji ? " / " : ""}{r.KunyomiRomaji || ""}
-                      </td>
-                      <td className="px-3 py-3 align-top whitespace-pre-wrap">
-                        {r.VocabJP || ""}{r.VocabJP && r.VocabRomaji ? " / " : ""}{r.VocabRomaji || ""}
-                      </td>
-                      <td className="px-3 py-3 align-top whitespace-pre-wrap">{r.VocabTH || ""}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </section>
+            </div>
           )}
         </>
       )}
 
-      {!loading && !error && sections.length === 0 && (
-        <div className="text-slate-500">ยังไม่ได้เลือกบทหรือไฟล์ไม่พบ</div>
-      )}
+      {loading && <div className="py-10 text-center text-slate-400">กำลังโหลดข้อมูล...</div>}
+      {error && <div className="py-10 text-center text-rose-500">{error}</div>}
     </main>
   );
 }
